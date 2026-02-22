@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 from PIL import Image, ImageDraw, ImageFont
-from fpdf import FPDF
 import os
 import base64
 import json
@@ -134,139 +133,33 @@ def guardar_proyectos(proyectos):
         st.error(f"Error al guardar proyectos: {e}")
 
 
-# ============================================================================
-# FUNCIONES DE GENERACIÓN DE PDF
-# ============================================================================
-
-def generar_pdf_proyecto(proyecto_data, proyecto_nombre):
-    """Genera PDF para un proyecto individual"""
-    pdf = FPDF()
-    pdf.add_page()
-
-    # Portada
-    pdf.set_font("Arial", "B", 14)
-    pdf.cell(0, 40, f"Reporte Auditoria Iluminacion RETILAP 2024 - {proyecto_nombre}", ln=1, align="C")
-    pdf.set_font("Arial", size=11)
-    pdf.cell(0, 8, f"Numero de Orden: {proyecto_data['general']['numero_orden'] or 'No especificado'}", ln=1)
-    pdf.cell(0, 8, f"Empresa: {proyecto_data['general']['nombre_empresa'] or 'No especificada'}", ln=1)
-    pdf.cell(0, 8, f"Sede: {proyecto_data['general']['sede'] or 'No especificada'}", ln=1)
-    pdf.cell(0, 8, f"Fecha: {proyecto_data['general']['fecha'] or 'No especificada'}", ln=1)
-    pdf.cell(0, 8, f"Fecha y hora de generacion: {datetime.now().strftime('%d/%m/%Y %H:%M')}", ln=1)
-    pdf.ln(5)
-
-    # Procesar cada plano
+def generar_reporte_csv(proyecto_data, proyecto_nombre):
+    """Genera un reporte en CSV"""
+    reportes = []
+    
     for plano_nombre, plano_info in proyecto_data["planos"].items():
         if not plano_info["data"]:
             continue
-
-        # Página de tabla de mediciones
-        pdf.add_page()
-        pdf.set_font("Arial", "B", 12)
-        pdf.cell(0, 10, f"Plano: {plano_nombre}", ln=1)
-
-        df_plano = pd.DataFrame(plano_info["data"])
-
-        # Tabla con mediciones
-        pdf.set_font("Arial", "B", 9)
-        pdf.cell(15, 8, "Punto", border=1)
-        pdf.cell(30, 8, "Coords", border=1)
-        pdf.cell(18, 8, "Med1", border=1)
-        pdf.cell(18, 8, "Med2", border=1)
-        pdf.cell(18, 8, "Med3", border=1)
-        pdf.cell(18, 8, "Med4", border=1)
-        pdf.cell(25, 8, "Promedio", border=1)
-        pdf.cell(40, 8, "Resultado", border=1)
-        pdf.ln()
-
-        pdf.set_font("Arial", size=9)
-        for _, r in df_plano.iterrows():
-            pdf.cell(15, 8, str(r["Número"]), border=1)
-            pdf.cell(30, 8, r["Coordenadas"], border=1)
-            pdf.cell(18, 8, f"{r['Med1']}", border=1)
-            pdf.cell(18, 8, f"{r['Med2']}", border=1)
-            pdf.cell(18, 8, f"{r['Med3']}", border=1)
-            pdf.cell(18, 8, f"{r['Med4']}", border=1)
-            pdf.cell(25, 8, f"{r['Promedio']:.1f}", border=1)
-
-            # Convertir resultado sin emojis
-            resultado_texto = r["Resultado"].replace("✅ ", "").replace("❌ ", "")
-            if "Conforme" in resultado_texto:
-                pdf.set_text_color(0, 128, 0)
-            else:
-                pdf.set_text_color(255, 0, 0)
-
-            pdf.cell(40, 8, resultado_texto, border=1)
-            pdf.set_text_color(0, 0, 0)
-            pdf.ln()
-
-        # Página de mapa
-        if plano_info.get("img"):
-            pdf.add_page()
-            scale = min(190 / plano_info["img"].width, 270 / plano_info["img"].height)
-            pdf_w = plano_info["img"].width * scale
-            pdf_h = plano_info["img"].height * scale
-
-            temp_plano = f"temp_{plano_nombre}.png"
-            plano_info["img"].save(temp_plano, format="PNG")
-            pdf.image(temp_plano, x=10, y=10, w=pdf_w, h=pdf_h)
-            os.remove(temp_plano)
-
-            for _, r in df_plano.iterrows():
-                x = int(r["Coordenadas"].split(",")[0].strip("() ")) * scale + 10
-                y = int(r["Coordenadas"].split(",")[1].strip("() ")) * scale + 10
-
-                if r["Color"] == "green":
-                    pdf.set_fill_color(0, 255, 0)
-                else:
-                    pdf.set_fill_color(255, 0, 0)
-                pdf.circle(x, y, 5, style="FD")
-
-                texto = str(r["Número"])
-                pdf.set_xy(x - 2, y - 3)
-                pdf.set_text_color(0, 0, 0)
-                pdf.set_font("Arial", size=8)
-                pdf.cell(4, 4, texto, align="C")
-
-        # Página de fotos y notas
-        if plano_info["fotos"] or df_plano["Nota"].str.strip().any():
-            pdf.add_page()
-            pdf.set_font("Arial", "B", 12)
-            pdf.cell(0, 10, f"Fotos y notas - {plano_nombre}", ln=1, align="C")
-            pdf.ln(5)
-
-            y_pos = 25
-            for i, row in df_plano.iterrows():
-                nota = row["Nota"].strip()
-                foto_bytes = plano_info["fotos"].get(row["Número"])
-
-                if foto_bytes or nota:
-                    pdf.set_font("Arial", "B", 10)
-                    pdf.cell(0, 8, f"Punto {row['Número']}", ln=1)
-                    pdf.set_font("Arial", size=10)
-
-                    if foto_bytes:
-                        try:
-                            foto_img = Image.open(io.BytesIO(foto_bytes))
-                            temp_foto = f"temp_foto_{row['Número']}.png"
-                            foto_img.save(temp_foto, format="PNG")
-                            pdf.image(temp_foto, x=10, y=y_pos, w=80, h=60)
-                            os.remove(temp_foto)
-
-                            pdf.set_xy(95, y_pos)
-                            pdf.multi_cell(100, 5, f"Nota: {nota}" if nota else "Sin nota adicional", align="L")
-                            y_pos += 70
-                        except:
-                            y_pos += 15
-                    else:
-                        pdf.multi_cell(0, 5, f"Nota: {nota}")
-                        y_pos += 15
-
-                    y_pos += 10
-                    if y_pos > 250:
-                        pdf.add_page()
-                        y_pos = 25
-
-    return pdf
+        
+        for row in plano_info["data"]:
+            reportes.append({
+                "Proyecto": proyecto_nombre,
+                "Plano": plano_nombre,
+                "Punto": row["Número"],
+                "Coordenadas": row["Coordenadas"],
+                "Med1": row["Med1"],
+                "Med2": row["Med2"],
+                "Med3": row["Med3"],
+                "Med4": row["Med4"],
+                "Promedio": row["Promedio"],
+                "Resultado": row["Resultado"],
+                "Nota": row["Nota"]
+            })
+    
+    if reportes:
+        df = pd.DataFrame(reportes)
+        return df.to_csv(index=False).encode('utf-8')
+    return None
 
 
 # ============================================================================
@@ -335,12 +228,16 @@ def pagina_inicio():
                             st.rerun()
                     
                     with btn_col2:
-                        if st.button("📄", key=f"btn_pdf_{idx}_{proyecto_nombre}", help="Descargar PDF"):
-                            pdf = generar_pdf_proyecto(proyecto_data, proyecto_nombre)
-                            pdf_bytes = pdf.output(dest="S")
-                            b64 = base64.b64encode(pdf_bytes).decode()
-                            href = f'<a href="data:application/pdf;base64,{b64}" download="Reporte_{proyecto_nombre.replace(" ", "_")}.pdf">Descargar</a>'
-                            st.markdown(href, unsafe_allow_html=True)
+                        if st.button("📊", key=f"btn_csv_{idx}_{proyecto_nombre}", help="Descargar CSV"):
+                            csv_data = generar_reporte_csv(proyecto_data, proyecto_nombre)
+                            if csv_data:
+                                st.download_button(
+                                    label="Descargar CSV",
+                                    data=csv_data,
+                                    file_name=f"Reporte_{proyecto_nombre.replace(' ', '_')}.csv",
+                                    mime="text/csv",
+                                    key=f"download_csv_{idx}"
+                                )
                     
                     with btn_col3:
                         if st.button("🗑️", key=f"btn_eliminar_{idx}_{proyecto_nombre}", help="Eliminar"):
