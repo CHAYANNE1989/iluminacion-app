@@ -4,4 +4,3 @@ Pillow
 pdf2image
 streamlit-image-coordinates
 reportlab
-requests
