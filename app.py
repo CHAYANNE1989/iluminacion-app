@@ -75,7 +75,6 @@ def cargar_proyectos():
                             "fotos": plano_info.get("fotos", {})
                         }
                         
-                        # Reconstruir imagen desde base64
                         if "img_base64" in plano_info:
                             try:
                                 img_bytes = base64.b64decode(plano_info["img_base64"])
@@ -115,7 +114,6 @@ def guardar_proyectos(proyectos):
                     "fotos": {}
                 }
                 
-                # Guardar imagen como base64
                 if plano_info.get("img") is not None:
                     try:
                         img_bytes = io.BytesIO()
@@ -123,7 +121,7 @@ def guardar_proyectos(proyectos):
                         img_bytes.seek(0)
                         plano_dict["img_base64"] = base64.b64encode(img_bytes.read()).decode()
                     except Exception as e:
-                        pass
+                        st.warning(f"⚠️ No se pudo guardar la imagen del plano '{plano_name}': {e}")
                 
                 serializable[p_name]["planos"][plano_name] = plano_dict
         
@@ -160,6 +158,293 @@ def generar_reporte_csv(proyecto_data, proyecto_nombre):
         df = pd.DataFrame(reportes)
         return df.to_csv(index=False).encode('utf-8')
     return None
+
+
+def generar_reporte_pdf(proyecto_data, proyecto_nombre):
+    """
+    Genera un reporte profesional en PDF usando reportlab.
+    Incluye portada, tabla de mediciones por plano y mapa de puntos anotado.
+    """
+    try:
+        from reportlab.lib.pagesizes import letter, landscape
+        from reportlab.lib import colors
+        from reportlab.lib.units import inch, cm
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+        from reportlab.platypus import (
+            SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+            PageBreak, Image as RLImage, HRFlowable
+        )
+        from reportlab.platypus.flowables import KeepTogether
+
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=letter,
+            rightMargin=2*cm,
+            leftMargin=2*cm,
+            topMargin=2*cm,
+            bottomMargin=2*cm
+        )
+
+        styles = getSampleStyleSheet()
+        story = []
+
+        # ---- Estilos personalizados ----
+        estilo_titulo = ParagraphStyle(
+            'Titulo',
+            parent=styles['Title'],
+            fontSize=20,
+            textColor=colors.HexColor('#1a3a5c'),
+            spaceAfter=6,
+            alignment=TA_CENTER,
+        )
+        estilo_subtitulo = ParagraphStyle(
+            'Subtitulo',
+            parent=styles['Normal'],
+            fontSize=12,
+            textColor=colors.HexColor('#2c6fad'),
+            spaceAfter=4,
+            alignment=TA_CENTER,
+        )
+        estilo_seccion = ParagraphStyle(
+            'Seccion',
+            parent=styles['Heading2'],
+            fontSize=13,
+            textColor=colors.HexColor('#1a3a5c'),
+            spaceBefore=16,
+            spaceAfter=8,
+            borderPad=4,
+        )
+        estilo_normal = ParagraphStyle(
+            'Normal2',
+            parent=styles['Normal'],
+            fontSize=10,
+            spaceAfter=4,
+        )
+        estilo_pie = ParagraphStyle(
+            'Pie',
+            parent=styles['Normal'],
+            fontSize=8,
+            textColor=colors.grey,
+            alignment=TA_CENTER,
+        )
+
+        general = proyecto_data.get("general", {})
+
+        # ================================================================
+        # PORTADA
+        # ================================================================
+        story.append(Spacer(1, 1.5*inch))
+        story.append(Paragraph("💡 REPORTE DE AUDITORÍA DE ILUMINACIÓN", estilo_titulo))
+        story.append(Paragraph("Norma RETILAP 2024", estilo_subtitulo))
+        story.append(Spacer(1, 0.3*inch))
+        story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor('#2c6fad')))
+        story.append(Spacer(1, 0.3*inch))
+
+        # Tabla de datos del proyecto
+        info_data = [
+            ["Proyecto:", proyecto_nombre],
+            ["Orden de trabajo:", general.get("numero_orden", "N/A")],
+            ["Empresa:", general.get("nombre_empresa", "N/A")],
+            ["Sede:", general.get("sede", "N/A")],
+            ["Fecha:", general.get("fecha", "N/A")],
+            ["Tipo de área:", general.get("tipo_area", "N/A")],
+            ["Generado:", datetime.now().strftime("%d/%m/%Y %H:%M")],
+        ]
+
+        tabla_info = Table(info_data, colWidths=[3.5*cm, 12*cm])
+        tabla_info.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 11),
+            ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor('#1a3a5c')),
+            ('ROWBACKGROUNDS', (0, 0), (-1, -1), [colors.HexColor('#f0f4f8'), colors.white]),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#ccddee')),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('LEFTPADDING', (0, 0), (-1, -1), 10),
+        ]))
+        story.append(tabla_info)
+        story.append(Spacer(1, 0.5*inch))
+
+        # Resumen general de conformidad
+        total_puntos = 0
+        conformes = 0
+        no_conformes = 0
+        for plano_info in proyecto_data["planos"].values():
+            for row in plano_info.get("data", []):
+                total_puntos += 1
+                if "✅" in str(row.get("Resultado", "")):
+                    conformes += 1
+                else:
+                    no_conformes += 1
+
+        if total_puntos > 0:
+            pct = round(conformes / total_puntos * 100, 1)
+            color_pct = colors.HexColor('#27ae60') if pct >= 80 else colors.HexColor('#e74c3c')
+
+            resumen_data = [
+                ["Total puntos medidos", "Conformes", "No conformes", "% Conformidad"],
+                [str(total_puntos), str(conformes), str(no_conformes), f"{pct}%"],
+            ]
+            tabla_resumen = Table(resumen_data, colWidths=[4*cm]*4)
+            tabla_resumen.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1a3a5c')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTNAME', (0, 1), (-1, 1), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 11),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('ROWHEIGHTS', (0, 0), (-1, -1), 28),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#ccddee')),
+                ('TEXTCOLOR', (3, 1), (3, 1), color_pct),
+                ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor('#f0f4f8')),
+            ]))
+            story.append(tabla_resumen)
+
+        story.append(PageBreak())
+
+        # ================================================================
+        # SECCIÓN POR PLANO
+        # ================================================================
+        for plano_nombre, plano_info in proyecto_data["planos"].items():
+            data_rows = plano_info.get("data", [])
+            plano_img = plano_info.get("img")
+
+            story.append(Paragraph(f"📐 Plano: {plano_nombre}", estilo_seccion))
+            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#ccddee')))
+            story.append(Spacer(1, 0.15*inch))
+
+            # Mapa de puntos anotado
+            if plano_img is not None and data_rows:
+                try:
+                    draw_img = plano_img.copy()
+
+                    # Escalar si es muy grande
+                    max_w = 1400
+                    if draw_img.width > max_w:
+                        ratio = max_w / draw_img.width
+                        draw_img = draw_img.resize(
+                            (max_w, int(draw_img.height * ratio)), Image.LANCZOS
+                        )
+
+                    draw = ImageDraw.Draw(draw_img)
+                    font = ImageFont.load_default()
+
+                    for row in data_rows:
+                        try:
+                            coords = row["Coordenadas"]
+                            if isinstance(coords, (list, tuple)):
+                                x, y = int(coords[0]), int(coords[1])
+                            else:
+                                x, y = map(int, str(coords).strip("()").split(", "))
+                            color = row.get("Color", "gray")
+                            draw.ellipse(
+                                (x - 18, y - 18, x + 18, y + 18),
+                                fill=color, outline="black", width=3
+                            )
+                            texto = str(row["Número"])
+                            bbox = font.getbbox(texto)
+                            tw = bbox[2] - bbox[0]
+                            th = bbox[3] - bbox[1]
+                            tc = "white" if color == "red" else "black"
+                            draw.text((x - tw // 2, y - th // 2), texto, fill=tc, font=font)
+                        except Exception:
+                            pass
+
+                    # Insertar imagen en el PDF
+                    img_buffer = io.BytesIO()
+                    draw_img.save(img_buffer, format="PNG")
+                    img_buffer.seek(0)
+
+                    page_w = letter[0] - 4*cm
+                    aspect = draw_img.height / draw_img.width
+                    img_h = min(page_w * aspect, 5*inch)
+
+                    rl_img = RLImage(img_buffer, width=page_w, height=img_h)
+                    story.append(rl_img)
+                    story.append(Spacer(1, 0.2*inch))
+                except Exception as e:
+                    story.append(Paragraph(f"(No se pudo renderizar el mapa: {e})", estilo_normal))
+
+            # Tabla de mediciones
+            if data_rows:
+                story.append(Paragraph("Tabla de mediciones:", estilo_normal))
+
+                encabezado = ["#", "Coordenadas", "Med1", "Med2", "Med3", "Med4", "Promedio", "Resultado", "Nota"]
+                filas = [encabezado]
+
+                for row in data_rows:
+                    coords = row.get("Coordenadas", "")
+                    filas.append([
+                        str(row.get("Número", "")),
+                        str(coords),
+                        str(row.get("Med1", "")),
+                        str(row.get("Med2", "")),
+                        str(row.get("Med3", "")),
+                        str(row.get("Med4", "")),
+                        str(row.get("Promedio", "")),
+                        "Conforme" if "✅" in str(row.get("Resultado", "")) else "No conforme",
+                        str(row.get("Nota", ""))[:40],
+                    ])
+
+                col_widths = [1*cm, 3.2*cm, 1.8*cm, 1.8*cm, 1.8*cm, 1.8*cm, 2.2*cm, 2.5*cm, 3.5*cm]
+                tabla = Table(filas, colWidths=col_widths, repeatRows=1)
+
+                estilos_tabla = [
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1a3a5c')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, -1), 8),
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                    ('GRID', (0, 0), (-1, -1), 0.4, colors.HexColor('#aaccee')),
+                    ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f4f8')]),
+                    ('TOPPADDING', (0, 0), (-1, -1), 4),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                ]
+
+                # Colorear columna Resultado
+                for i, row in enumerate(data_rows, start=1):
+                    if "✅" in str(row.get("Resultado", "")):
+                        estilos_tabla.append(('TEXTCOLOR', (7, i), (7, i), colors.HexColor('#27ae60')))
+                        estilos_tabla.append(('FONTNAME', (7, i), (7, i), 'Helvetica-Bold'))
+                    else:
+                        estilos_tabla.append(('TEXTCOLOR', (7, i), (7, i), colors.HexColor('#e74c3c')))
+                        estilos_tabla.append(('FONTNAME', (7, i), (7, i), 'Helvetica-Bold'))
+
+                tabla.setStyle(TableStyle(estilos_tabla))
+                story.append(tabla)
+            else:
+                story.append(Paragraph("Sin mediciones registradas en este plano.", estilo_normal))
+
+            story.append(Spacer(1, 0.3*inch))
+            story.append(PageBreak())
+
+        # ================================================================
+        # PIE DE PÁGINA / NOTA LEGAL
+        # ================================================================
+        story.append(Spacer(1, 0.5*inch))
+        story.append(HRFlowable(width="100%", thickness=1, color=colors.grey))
+        story.append(Spacer(1, 0.1*inch))
+        story.append(Paragraph(
+            f"Reporte generado automáticamente · Auditoría Iluminación RETILAP 2024 · "
+            f"{datetime.now().strftime('%d/%m/%Y %H:%M')}",
+            estilo_pie
+        ))
+
+        doc.build(story)
+        buffer.seek(0)
+        return buffer.getvalue()
+
+    except ImportError:
+        st.error("❌ Falta instalar reportlab. Agrega 'reportlab' a requirements.txt")
+        return None
+    except Exception as e:
+        st.error(f"❌ Error al generar PDF: {e}")
+        return None
 
 
 # ============================================================================
@@ -205,7 +490,6 @@ def pagina_inicio():
             st.rerun()
     
     if st.session_state.proyectos:
-        # Mostrar proyectos en tarjetas
         proyectos_list = list(st.session_state.proyectos.items())
         for idx, (proyecto_nombre, proyecto_data) in enumerate(proyectos_list):
             with st.container(border=True):
@@ -219,33 +503,41 @@ def pagina_inicio():
                     st.caption(f"Fecha: {proyecto_data['general'].get('fecha', 'N/A')}")
                 
                 with col_buttons:
-                    btn_col1, btn_col2, btn_col3 = st.columns(3)
-                    
-                    with btn_col1:
-                        if st.button("✏️", key=f"btn_editar_{idx}_{proyecto_nombre}", help="Editar"):
-                            st.session_state.proyecto_actual = proyecto_nombre
-                            st.session_state.pagina = "editar_proyecto"
+                    # Botón Editar
+                    if st.button("✏️ Editar", key=f"btn_editar_{idx}_{proyecto_nombre}"):
+                        st.session_state.proyecto_actual = proyecto_nombre
+                        st.session_state.pagina = "editar_proyecto"
+                        st.rerun()
+
+                    # Descarga CSV — siempre visible (fix bug download_button anidado)
+                    csv_data = generar_reporte_csv(proyecto_data, proyecto_nombre)
+                    if csv_data:
+                        st.download_button(
+                            label="📊 Descargar CSV",
+                            data=csv_data,
+                            file_name=f"Reporte_{proyecto_nombre.replace(' ', '_')}.csv",
+                            mime="text/csv",
+                            key=f"download_csv_{idx}_{proyecto_nombre}"
+                        )
+
+                    # Descarga PDF
+                    pdf_data = generar_reporte_pdf(proyecto_data, proyecto_nombre)
+                    if pdf_data:
+                        st.download_button(
+                            label="📄 Descargar PDF",
+                            data=pdf_data,
+                            file_name=f"Reporte_{proyecto_nombre.replace(' ', '_')}.pdf",
+                            mime="application/pdf",
+                            key=f"download_pdf_{idx}_{proyecto_nombre}"
+                        )
+
+                    # Eliminar
+                    if st.button("🗑️ Eliminar", key=f"btn_eliminar_{idx}_{proyecto_nombre}"):
+                        if proyecto_nombre in st.session_state.proyectos:
+                            del st.session_state.proyectos[proyecto_nombre]
+                            guardar_proyectos(st.session_state.proyectos)
+                            st.success(f"✅ Proyecto '{proyecto_nombre}' eliminado")
                             st.rerun()
-                    
-                    with btn_col2:
-                        if st.button("📊", key=f"btn_csv_{idx}_{proyecto_nombre}", help="Descargar CSV"):
-                            csv_data = generar_reporte_csv(proyecto_data, proyecto_nombre)
-                            if csv_data:
-                                st.download_button(
-                                    label="Descargar CSV",
-                                    data=csv_data,
-                                    file_name=f"Reporte_{proyecto_nombre.replace(' ', '_')}.csv",
-                                    mime="text/csv",
-                                    key=f"download_csv_{idx}"
-                                )
-                    
-                    with btn_col3:
-                        if st.button("🗑️", key=f"btn_eliminar_{idx}_{proyecto_nombre}", help="Eliminar"):
-                            if proyecto_nombre in st.session_state.proyectos:
-                                del st.session_state.proyectos[proyecto_nombre]
-                                guardar_proyectos(st.session_state.proyectos)
-                                st.success(f"✅ Proyecto '{proyecto_nombre}' eliminado")
-                                st.rerun()
     else:
         st.info("ℹ️ No hay proyectos guardados. Crea uno nuevo para comenzar.")
 
@@ -302,7 +594,6 @@ def pagina_editar_proyecto():
     proyecto_data = st.session_state.proyectos[proyecto_actual]
     general = proyecto_data["general"]
     
-    # Asegurar que existen todos los campos necesarios
     if "sede" not in general:
         general["sede"] = ""
     if "fecha" not in general:
@@ -316,7 +607,6 @@ def pagina_editar_proyecto():
         st.session_state.pagina = "inicio"
         st.rerun()
     
-    # Información del proyecto
     st.subheader("📋 Información del Proyecto")
     col1, col2 = st.columns(2)
     with col1:
@@ -328,10 +618,8 @@ def pagina_editar_proyecto():
     
     st.divider()
     
-    # Sección de planos
     st.subheader("📐 Planos")
     
-    # Subir nuevo plano
     st.write("**Agregar nuevo plano:**")
     col1, col2 = st.columns([2, 1])
     
@@ -353,6 +641,12 @@ def pagina_editar_proyecto():
                     
                     if img.mode != 'RGB':
                         img = img.convert('RGB')
+
+                    # Redimensionar si es muy grande
+                    MAX_WIDTH = 1920
+                    if img.width > MAX_WIDTH:
+                        ratio = MAX_WIDTH / img.width
+                        img = img.resize((MAX_WIDTH, int(img.height * ratio)), Image.LANCZOS)
                     
                     proyecto_data["planos"][plano_nombre] = {
                         "img": img,
@@ -370,7 +664,6 @@ def pagina_editar_proyecto():
     
     st.divider()
     
-    # Listar planos existentes
     if proyecto_data["planos"]:
         st.write("**Planos disponibles:**")
         
@@ -391,6 +684,11 @@ def pagina_editar_proyecto():
 
 def pagina_editar_plano():
     """Página para editar puntos en un plano"""
+    # Validación defensiva
+    if "plano_actual" not in st.session_state:
+        st.session_state.pagina = "inicio"
+        st.rerun()
+
     proyecto_actual = st.session_state.proyecto_actual
     plano_actual = st.session_state.plano_actual
     
@@ -405,15 +703,12 @@ def pagina_editar_plano():
         st.session_state.pagina = "editar_proyecto"
         st.rerun()
     
-    # Validar imagen
     if plano_img is None:
         st.error(f"⚠️ La imagen del plano no se pudo cargar. Por favor, vuelve a subir el plano.")
         return
     
-    # Mostrar imagen
-    st.image(plano_img, caption=f"Plano: {plano_actual} - Haz clic para marcar puntos", use_column_width=True)
+    st.image(plano_img, caption=f"Plano: {plano_actual} - Haz clic para marcar puntos", use_container_width=True)
     
-    # Seleccionar tipo de área
     tipo_area = st.selectbox("Tipo de área según RETILAP", list(RETILAP_REFERENCIA.keys()), 
                             index=list(RETILAP_REFERENCIA.keys()).index(general["tipo_area"]), 
                             key=f"tipo_area_{proyecto_actual}_{plano_actual}")
@@ -425,7 +720,6 @@ def pagina_editar_plano():
     
     st.success(f"💡 Iluminancia mantenida sugerida (Em): **{em_sugerido} lx** | Uniformidad mínima sugerida (Uo): **{uo_min}**")
     
-    # Selección de puntos
     clicked = streamlit_image_coordinates(
         plano_img,
         key=f"clicker_{proyecto_actual}_{plano_actual}",
@@ -442,7 +736,6 @@ def pagina_editar_plano():
     
     st.write(f"**Puntos en este plano:** {len(plano_data['puntos'])}")
     
-    # Botones de gestión de puntos
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🗑️ Eliminar último punto", key=f"eliminar_ultimo_{proyecto_actual}_{plano_actual}"):
@@ -458,69 +751,72 @@ def pagina_editar_plano():
     
     st.divider()
     
-    # Ingreso de mediciones
     if plano_data["puntos"]:
         st.subheader("📊 Mediciones por punto")
         
         for i, (x, y) in enumerate(plano_data["puntos"]):
+            # Cargar valores existentes para que no se pierdan en reruns
+            existing = next((d for d in plano_data["data"] if d["Número"] == i + 1), {})
+
             with st.expander(f"Punto {i+1} ({int(x)}, {int(y)})", expanded=False):
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    med1 = st.number_input("Med 1", min_value=0.0, step=0.1, key=f"m1_{proyecto_actual}_{plano_actual}_{i}")
+                    med1 = st.number_input("Med 1", min_value=0.0, step=0.1,
+                                           value=float(existing.get("Med1", 0.0)),
+                                           key=f"m1_{proyecto_actual}_{plano_actual}_{i}")
                 with col2:
-                    med2 = st.number_input("Med 2", min_value=0.0, step=0.1, key=f"m2_{proyecto_actual}_{plano_actual}_{i}")
+                    med2 = st.number_input("Med 2", min_value=0.0, step=0.1,
+                                           value=float(existing.get("Med2", 0.0)),
+                                           key=f"m2_{proyecto_actual}_{plano_actual}_{i}")
                 with col3:
-                    med3 = st.number_input("Med 3", min_value=0.0, step=0.1, key=f"m3_{proyecto_actual}_{plano_actual}_{i}")
+                    med3 = st.number_input("Med 3", min_value=0.0, step=0.1,
+                                           value=float(existing.get("Med3", 0.0)),
+                                           key=f"m3_{proyecto_actual}_{plano_actual}_{i}")
                 with col4:
-                    med4 = st.number_input("Med 4", min_value=0.0, step=0.1, key=f"m4_{proyecto_actual}_{plano_actual}_{i}")
+                    med4 = st.number_input("Med 4", min_value=0.0, step=0.1,
+                                           value=float(existing.get("Med4", 0.0)),
+                                           key=f"m4_{proyecto_actual}_{plano_actual}_{i}")
                 
                 foto_subida = st.file_uploader(f"Foto del punto {i+1} (opcional)", type=["jpg", "jpeg", "png"], key=f"foto_{proyecto_actual}_{plano_actual}_{i}")
                 if foto_subida is not None:
                     plano_data["fotos"][i+1] = foto_subida.read()
                     guardar_proyectos(st.session_state.proyectos)
                 
-                nota = st.text_area("Notas / observaciones", height=80, key=f"nota_{proyecto_actual}_{plano_actual}_{i}")
+                nota = st.text_area("Notas / observaciones", height=80,
+                                    value=existing.get("Nota", ""),
+                                    key=f"nota_{proyecto_actual}_{plano_actual}_{i}")
                 
-                # Actualizar datos
                 if all(v > 0 for v in [med1, med2, med3, med4]):
                     promedio = (med1 + med2 + med3 + med4) / 4
                     conforme = promedio >= em_sugerido
                     color = "green" if conforme else "red"
                     resultado = "✅ Conforme" if conforme else "❌ No conforme"
                     
-                    if len(plano_data["data"]) > i:
-                        plano_data["data"][i] = {
-                            "Número": i+1,
-                            "Coordenadas": f"({int(x)}, {int(y)})",
-                            "Med1": med1,
-                            "Med2": med2,
-                            "Med3": med3,
-                            "Med4": med4,
-                            "Promedio": round(promedio, 1),
-                            "Resultado": resultado,
-                            "Color": color,
-                            "Nota": nota.strip(),
-                            "Foto": foto_subida is not None
-                        }
+                    entrada = {
+                        "Número": i + 1,
+                        "Coordenadas": f"({int(x)}, {int(y)})",
+                        "Med1": med1,
+                        "Med2": med2,
+                        "Med3": med3,
+                        "Med4": med4,
+                        "Promedio": round(promedio, 1),
+                        "Resultado": resultado,
+                        "Color": color,
+                        "Nota": nota.strip(),
+                        "Foto": foto_subida is not None
+                    }
+
+                    # Actualizar o insertar según corresponda
+                    idx_existing = next((j for j, d in enumerate(plano_data["data"]) if d["Número"] == i + 1), None)
+                    if idx_existing is not None:
+                        plano_data["data"][idx_existing] = entrada
                     else:
-                        plano_data["data"].append({
-                            "Número": i+1,
-                            "Coordenadas": f"({int(x)}, {int(y)})",
-                            "Med1": med1,
-                            "Med2": med2,
-                            "Med3": med3,
-                            "Med4": med4,
-                            "Promedio": round(promedio, 1),
-                            "Resultado": resultado,
-                            "Color": color,
-                            "Nota": nota.strip(),
-                            "Foto": foto_subida is not None
-                        })
+                        plano_data["data"].append(entrada)
+
                     guardar_proyectos(st.session_state.proyectos)
         
         st.divider()
         
-        # Mostrar mapa
         if plano_data["data"]:
             st.subheader("🗺️ Mapa de puntos")
             df_plano = pd.DataFrame(plano_data["data"])
@@ -543,9 +839,8 @@ def pagina_editar_plano():
                 text_color = "white" if color == "red" else "black"
                 draw.text((text_x, text_y), texto, fill=text_color, font=font)
             
-            st.image(draw_img, caption=f"Mapa - {plano_actual}")
+            st.image(draw_img, caption=f"Mapa - {plano_actual}", use_container_width=True)
             
-            # Tabla de resultados
             st.subheader("📊 Tabla de Resultados")
             st.dataframe(df_plano[["Número", "Coordenadas", "Med1", "Med2", "Med3", "Med4", "Promedio", "Resultado"]], use_container_width=True)
 
@@ -558,10 +853,8 @@ def main():
     """Función principal de la aplicación"""
     st.set_page_config(page_title="Auditoría Iluminación RETILAP", layout="wide")
     
-    # Inicializar session state
     inicializar_session_state()
     
-    # Mostrar página según el estado
     if st.session_state.pagina == "inicio":
         pagina_inicio()
     elif st.session_state.pagina == "nuevo_proyecto":
@@ -574,4 +867,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
