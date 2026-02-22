@@ -346,14 +346,16 @@ def generar_reporte_pdf(proyecto_data, proyecto_nombre):
                             color = row.get("Color", "gray")
                             draw.ellipse(
                                 (x - 18, y - 18, x + 18, y + 18),
-                                fill=color, outline="black", width=3
+                                fill=color
                             )
                             texto = str(row["Número"])
                             bbox = font.getbbox(texto)
                             tw = bbox[2] - bbox[0]
                             th = bbox[3] - bbox[1]
-                            tc = "white" if color == "red" else "black"
-                            draw.text((x - tw // 2, y - th // 2), texto, fill=tc, font=font)
+                            # Sombra para que el número resalte más
+                            for dx, dy in [(-1,-1),(1,-1),(-1,1),(1,1)]:
+                                draw.text((x - tw//2 + dx, y - th//2 + dy), texto, fill="black", font=font)
+                            draw.text((x - tw // 2, y - th // 2), texto, fill="white", font=font)
                         except Exception:
                             pass
 
@@ -857,17 +859,19 @@ def pagina_editar_plano():
             for _, r in df_plano.iterrows():
                 x, y = map(int, r["Coordenadas"].strip("()").split(", "))
                 color = r["Color"]
-                draw.ellipse((x - 18, y - 18, x + 18, y + 18), fill=color, outline="black", width=3)
-                
+                draw.ellipse((x - 18, y - 18, x + 18, y + 18), fill=color)
+
                 texto = str(r["Número"])
                 bbox = font.getbbox(texto)
                 text_width = bbox[2] - bbox[0]
                 text_height = bbox[3] - bbox[1]
                 text_x = x - text_width // 2
                 text_y = y - text_height // 2
-                
-                text_color = "white" if color == "red" else "black"
-                draw.text((text_x, text_y), texto, fill=text_color, font=font)
+
+                # Sombra para que el número resalte más
+                for dx, dy in [(-1,-1),(1,-1),(-1,1),(1,1)]:
+                    draw.text((text_x+dx, text_y+dy), texto, fill="black", font=font)
+                draw.text((text_x, text_y), texto, fill="white", font=font)
             
             st.image(draw_img, caption=f"Mapa - {plano_actual}", use_container_width=True)
             
