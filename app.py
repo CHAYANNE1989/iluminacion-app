@@ -260,7 +260,7 @@ def drive_cargar_proyectos():
                 plano_dict = {
                     "puntos": plano_info["puntos"],
                     "data": plano_info["data"],
-                    "fotos": plano_info.get("fotos", {})
+                    "fotos": {}
                 }
                 if "img_base64" in plano_info:
                     try:
@@ -317,8 +317,8 @@ def drive_guardar_proyectos(proyectos):
             )
         else:
             # Crear nuevo archivo con metadata
-            metadata = json.dumps({"name": DRIVE_FILE_NAME, "parents": [folder_id]}).encode()
             boundary = "retilap_boundary"
+            metadata = json.dumps({"name": DRIVE_FILE_NAME, "parents": [folder_id]}).encode()
             body = (
                 f"--{boundary}\r\nContent-Type: application/json\r\n\r\n".encode()
                 + metadata
@@ -444,10 +444,10 @@ def generar_reporte_pdf(proyecto_data, proyecto_nombre):
         for pi in proyecto_data["planos"].values():
             for row in pi.get("data", []):
                 total += 1
-                (conformes if "✅" in str(row.get("Resultado","")) else no_conformes).__add__ # conteo manual abajo
-        conformes    = sum(1 for pi in proyecto_data["planos"].values() for r in pi.get("data",[]) if "✅" in str(r.get("Resultado","")))
-        no_conformes = sum(1 for pi in proyecto_data["planos"].values() for r in pi.get("data",[]) if "❌" in str(r.get("Resultado","")))
-        total        = conformes + no_conformes
+                if "✅" in str(row.get("Resultado","")):
+                    conformes += 1
+                else:
+                    no_conformes += 1
 
         if total > 0:
             pct = round(conformes / total * 100, 1)
@@ -491,7 +491,7 @@ def generar_reporte_pdf(proyecto_data, proyecto_nombre):
                     for row in data_rows:
                         try:
                             coords = row["Coordenadas"]
-                            x, y = map(int, str(coords).strip("()").split(", "))
+                            x, y = map(int, coords.strip("()").split(", "))
                             clr = row.get("Color","gray")
                             draw.ellipse((x-18,y-18,x+18,y+18), fill=clr, outline="black", width=3)
                             txt = str(row["Número"])
@@ -530,7 +530,7 @@ def generar_reporte_pdf(proyecto_data, proyecto_nombre):
                 es = [
                     ("BACKGROUND",(0,0),(-1,0), colors.HexColor("#1a3a5c")),
                     ("TEXTCOLOR",(0,0),(-1,0), colors.white),
-                    ("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),
+                    ("FONTNAME",(0,0),(-1,-1),"Helvetica-Bold"),
                     ("FONTSIZE",(0,0),(-1,-1),8),
                     ("ALIGN",(0,0),(-1,-1),"CENTER"),
                     ("VALIGN",(0,0),(-1,-1),"MIDDLE"),
@@ -616,53 +616,30 @@ def sidebar_usuario():
 # ============================================================================
 
 def pagina_inicio():
-    st.title("💡 Auditoría Iluminación RETILAP 2024")
+    st.set_page_config(page_title="Auditoría Iluminación RETILAP", layout="centered")
+    st.markdown("""
+        <div style='text-align:center; padding: 60px 0 20px 0;'>
+            <h1>💡 Auditoría de Iluminación</h1>
+            <p style='font-size:1.2rem; color:#888;'>Norma RETILAP 2024</p>
+        </div>
+    """, unsafe_allow_html=True)
 
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.subheader("📋 Proyectos Guardados")
+    col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        if st.button("➕ Nuevo Proyecto", key="btn_nuevo_proyecto"):
-            st.session_state.pagina = "nuevo_proyecto"
-            st.rerun()
-
-    if st.session_state.proyectos:
-        for idx, (proyecto_nombre, proyecto_data) in enumerate(st.session_state.proyectos.items()):
-            with st.container(border=True):
-                col_info, col_buttons = st.columns([3, 1])
-                with col_info:
-                    st.write(f"**{proyecto_nombre}**")
-                    st.caption(f"Orden: {proyecto_data['general'].get('numero_orden','N/A')}")
-                    st.caption(f"Empresa: {proyecto_data['general'].get('nombre_empresa','N/A')}")
-                    st.caption(f"Sede: {proyecto_data['general'].get('sede','N/A')}")
-                    st.caption(f"Fecha: {proyecto_data['general'].get('fecha','N/A')}")
-                with col_buttons:
-                    if st.button("✏️ Editar", key=f"btn_editar_{idx}_{proyecto_nombre}"):
-                        st.session_state.proyecto_actual = proyecto_nombre
-                        st.session_state.pagina = "editar_proyecto"
-                        st.rerun()
-
-                    csv_data = generar_reporte_csv(proyecto_data, proyecto_nombre)
-                    if csv_data:
-                        st.download_button("📊 CSV", data=csv_data,
-                                           file_name=f"Reporte_{proyecto_nombre.replace(' ','_')}.csv",
-                                           mime="text/csv",
-                                           key=f"csv_{idx}_{proyecto_nombre}")
-
-                    pdf_data = generar_reporte_pdf(proyecto_data, proyecto_nombre)
-                    if pdf_data:
-                        st.download_button("📄 PDF", data=pdf_data,
-                                           file_name=f"Reporte_{proyecto_nombre.replace(' ','_')}.pdf",
-                                           mime="application/pdf",
-                                           key=f"pdf_{idx}_{proyecto_nombre}")
-
-                    if st.button("🗑️ Eliminar", key=f"btn_eliminar_{idx}_{proyecto_nombre}"):
-                        del st.session_state.proyectos[proyecto_nombre]
-                        drive_guardar_proyectos(st.session_state.proyectos)
-                        st.success(f"✅ Proyecto '{proyecto_nombre}' eliminado")
-                        st.rerun()
-    else:
-        st.info("ℹ️ No hay proyectos guardados. Crea uno nuevo para comenzar.")
+        st.info("Inicia sesión con tu cuenta de Google para acceder a la app. "
+                "Tus proyectos se guardarán automáticamente en tu Google Drive.")
+        auth_url = get_auth_url()
+        st.markdown(f"""
+            <a href="{auth_url}" target="_self">
+                <button style="
+                    background:#4285F4; color:white; border:none; padding:12px 28px;
+                    font-size:1rem; border-radius:6px; cursor:pointer; width:100%;
+                    display:flex; align-items:center; justify-content:center; gap:10px;
+                ">
+                    🔐 Iniciar sesión con Google
+                </button>
+            </a>
+        """, unsafe_allow_html=True)
 
 
 def pagina_nuevo_proyecto():
@@ -714,7 +691,7 @@ def pagina_editar_proyecto():
         if campo not in general:
             general[campo] = default
 
-    st.title(f"✏️ Editando: {proyecto_actual}")
+    st.title(f"✏️ Editar Proyecto: {proyecto_actual}")
     if st.button("← Volver", key="btn_volver_editar"):
         st.session_state.pagina = "inicio"
         st.rerun()
@@ -813,7 +790,7 @@ def pagina_editar_plano():
 
     st.write(f"**Puntos en este plano:** {len(plano_data['puntos'])}")
 
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns([1,1])
     with col1:
         if st.button("🗑️ Eliminar último punto", key=f"eliminar_ultimo_{proyecto_actual}_{plano_actual}"):
             if plano_data["puntos"]:
