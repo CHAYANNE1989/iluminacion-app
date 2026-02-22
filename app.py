@@ -334,28 +334,23 @@ def generar_reporte_pdf(proyecto_data, proyecto_nombre):
                         )
 
                     draw = ImageDraw.Draw(draw_img)
-                    font = ImageFont.load_default()
+                    try:
+                        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
+                    except Exception:
+                        font = ImageFont.load_default(size=28)
 
                     for row in data_rows:
                         try:
                             coords = row["Coordenadas"]
-                            if isinstance(coords, (list, tuple)):
-                                x, y = int(coords[0]), int(coords[1])
-                            else:
-                                x, y = map(int, str(coords).strip("()").split(", "))
-                            color = row.get("Color", "gray")
-                            draw.ellipse(
-                                (x - 18, y - 18, x + 18, y + 18),
-                                fill=color
-                            )
-                            texto = str(row["Número"])
-                            bbox = font.getbbox(texto)
-                            tw = bbox[2] - bbox[0]
-                            th = bbox[3] - bbox[1]
-                            # Sombra para que el número resalte más
+                            x, y = map(int, str(coords).strip("()").split(", "))
+                            clr = row.get("Color","gray")
+                            draw.ellipse((x-24, y-24, x+24, y+24), fill=clr)
+                            txt = str(row["Número"])
+                            bb = font.getbbox(txt)
+                            tw, th = bb[2]-bb[0], bb[3]-bb[1]
                             for dx, dy in [(-1,-1),(1,-1),(-1,1),(1,1)]:
-                                draw.text((x - tw//2 + dx, y - th//2 + dy), texto, fill="black", font=font)
-                            draw.text((x - tw // 2, y - th // 2), texto, fill="white", font=font)
+                                draw.text((x-tw//2+dx, y-th//2+dy), txt, fill="black", font=font)
+                            draw.text((x-tw//2, y-th//2), txt, fill="white", font=font)
                         except Exception:
                             pass
 
@@ -854,12 +849,16 @@ def pagina_editar_plano():
             df_plano = pd.DataFrame(plano_data["data"])
             draw_img = plano_img.copy()
             draw = ImageDraw.Draw(draw_img)
-            font = ImageFont.load_default()
-            
+            # Fuente grande para los números
+            try:
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
+            except Exception:
+                font = ImageFont.load_default(size=28)
+
             for _, r in df_plano.iterrows():
                 x, y = map(int, r["Coordenadas"].strip("()").split(", "))
                 color = r["Color"]
-                draw.ellipse((x - 18, y - 18, x + 18, y + 18), fill=color)
+                draw.ellipse((x - 24, y - 24, x + 24, y + 24), fill=color)
 
                 texto = str(r["Número"])
                 bbox = font.getbbox(texto)
