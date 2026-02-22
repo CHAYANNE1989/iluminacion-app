@@ -145,6 +145,9 @@ def generar_reporte_csv(proyecto_data, proyecto_nombre):
                 "Plano": plano_nombre,
                 "Punto": row["Número"],
                 "Coordenadas": row["Coordenadas"],
+                "Tipo de Área": row.get("TipoArea", "N/A"),
+                "Em requerida (lx)": row.get("Em_req", "N/A"),
+                "Uo mínima": row.get("Uo_min", "N/A"),
                 "Med1": row["Med1"],
                 "Med2": row["Med2"],
                 "Med3": row["Med3"],
@@ -373,14 +376,14 @@ def generar_reporte_pdf(proyecto_data, proyecto_nombre):
             if data_rows:
                 story.append(Paragraph("Tabla de mediciones:", estilo_normal))
 
-                encabezado = ["#", "Coordenadas", "Med1", "Med2", "Med3", "Med4", "Promedio", "Resultado", "Nota"]
+                encabezado = ["#", "Tipo de Área", "Em req.", "Med1", "Med2", "Med3", "Med4", "Promedio", "Resultado", "Nota"]
                 filas = [encabezado]
 
                 for row in data_rows:
-                    coords = row.get("Coordenadas", "")
                     filas.append([
                         str(row.get("Número", "")),
-                        str(coords),
+                        str(row.get("TipoArea", "N/A"))[:35],
+                        f"{row.get('Em_req', 'N/A')} lx",
                         str(row.get("Med1", "")),
                         str(row.get("Med2", "")),
                         str(row.get("Med3", "")),
@@ -390,7 +393,7 @@ def generar_reporte_pdf(proyecto_data, proyecto_nombre):
                         str(row.get("Nota", ""))[:40],
                     ])
 
-                col_widths = [1*cm, 3.2*cm, 1.8*cm, 1.8*cm, 1.8*cm, 1.8*cm, 2.2*cm, 2.5*cm, 3.5*cm]
+                col_widths = [0.8*cm, 4.5*cm, 1.8*cm, 1.5*cm, 1.5*cm, 1.5*cm, 1.5*cm, 2*cm, 2.2*cm, 3*cm]
                 tabla = Table(filas, colWidths=col_widths, repeatRows=1)
 
                 estilos_tabla = [
@@ -708,18 +711,7 @@ def pagina_editar_plano():
         return
     
     st.image(plano_img, caption=f"Plano: {plano_actual} - Haz clic para marcar puntos", use_container_width=True)
-    
-    tipo_area = st.selectbox("Tipo de área según RETILAP", list(RETILAP_REFERENCIA.keys()), 
-                            index=list(RETILAP_REFERENCIA.keys()).index(general["tipo_area"]), 
-                            key=f"tipo_area_{proyecto_actual}_{plano_actual}")
-    general["tipo_area"] = tipo_area
-    
-    valores = RETILAP_REFERENCIA[tipo_area]
-    em_sugerido = valores["Em"]
-    uo_min = valores["Uo"]
-    
-    st.success(f"💡 Iluminancia mantenida sugerida (Em): **{em_sugerido} lx** | Uniformidad mínima sugerida (Uo): **{uo_min}**")
-    
+
     clicked = streamlit_image_coordinates(
         plano_img,
         key=f"clicker_{proyecto_actual}_{plano_actual}",
@@ -759,42 +751,67 @@ def pagina_editar_plano():
             existing = next((d for d in plano_data["data"] if d["Número"] == i + 1), {})
 
             with st.expander(f"Punto {i+1} ({int(x)}, {int(y)})", expanded=False):
+
+                # Tipo de área individual por punto
+                tipos_area_list = list(RETILAP_REFERENCIA.keys())
+                tipo_area_guardado = existing.get("TipoArea", general.get("tipo_area", tipos_area_list[0]))
+                tipo_area_idx = tipos_area_list.index(tipo_area_guardado) if tipo_area_guardado in tipos_area_list else 0
+
+                tipo_area_punto = st.selectbox(
+                    "🏷️ Tipo de área según RETILAP",
+                    tipos_area_list,
+                    index=tipo_area_idx,
+                    key=f"tipo_area_{proyecto_actual}_{plano_actual}_{i}"
+                )
+                valores_punto = RETILAP_REFERENCIA[tipo_area_punto]
+                em_sugerido = valores_punto["Em"]
+                uo_min = valores_punto["Uo"]
+                st.info(f"Em requerida: **{em_sugerido} lx** · Uo mínima: **{uo_min}**")
+
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    med1 = st.number_input("Med 1", min_value=0.0, step=0.1,
+                    med1 = st.number_input("Med 1 (lx)", min_value=0.0, step=0.1,
                                            value=float(existing.get("Med1", 0.0)),
                                            key=f"m1_{proyecto_actual}_{plano_actual}_{i}")
                 with col2:
-                    med2 = st.number_input("Med 2", min_value=0.0, step=0.1,
+                    med2 = st.number_input("Med 2 (lx)", min_value=0.0, step=0.1,
                                            value=float(existing.get("Med2", 0.0)),
                                            key=f"m2_{proyecto_actual}_{plano_actual}_{i}")
                 with col3:
-                    med3 = st.number_input("Med 3", min_value=0.0, step=0.1,
+                    med3 = st.number_input("Med 3 (lx)", min_value=0.0, step=0.1,
                                            value=float(existing.get("Med3", 0.0)),
                                            key=f"m3_{proyecto_actual}_{plano_actual}_{i}")
                 with col4:
-                    med4 = st.number_input("Med 4", min_value=0.0, step=0.1,
+                    med4 = st.number_input("Med 4 (lx)", min_value=0.0, step=0.1,
                                            value=float(existing.get("Med4", 0.0)),
                                            key=f"m4_{proyecto_actual}_{plano_actual}_{i}")
-                
+
                 foto_subida = st.file_uploader(f"Foto del punto {i+1} (opcional)", type=["jpg", "jpeg", "png"], key=f"foto_{proyecto_actual}_{plano_actual}_{i}")
                 if foto_subida is not None:
                     plano_data["fotos"][i+1] = foto_subida.read()
                     guardar_proyectos(st.session_state.proyectos)
-                
+
                 nota = st.text_area("Notas / observaciones", height=80,
                                     value=existing.get("Nota", ""),
                                     key=f"nota_{proyecto_actual}_{plano_actual}_{i}")
-                
+
                 if all(v > 0 for v in [med1, med2, med3, med4]):
                     promedio = (med1 + med2 + med3 + med4) / 4
                     conforme = promedio >= em_sugerido
                     color = "green" if conforme else "red"
                     resultado = "✅ Conforme" if conforme else "❌ No conforme"
-                    
+
+                    if conforme:
+                        st.success(f"Promedio: **{round(promedio, 1)} lx** → {resultado}")
+                    else:
+                        st.error(f"Promedio: **{round(promedio, 1)} lx** → {resultado} (requiere ≥ {em_sugerido} lx)")
+
                     entrada = {
                         "Número": i + 1,
                         "Coordenadas": f"({int(x)}, {int(y)})",
+                        "TipoArea": tipo_area_punto,
+                        "Em_req": em_sugerido,
+                        "Uo_min": uo_min,
                         "Med1": med1,
                         "Med2": med2,
                         "Med3": med3,
@@ -806,7 +823,6 @@ def pagina_editar_plano():
                         "Foto": foto_subida is not None
                     }
 
-                    # Actualizar o insertar según corresponda
                     idx_existing = next((j for j, d in enumerate(plano_data["data"]) if d["Número"] == i + 1), None)
                     if idx_existing is not None:
                         plano_data["data"][idx_existing] = entrada
@@ -842,7 +858,12 @@ def pagina_editar_plano():
             st.image(draw_img, caption=f"Mapa - {plano_actual}", use_container_width=True)
             
             st.subheader("📊 Tabla de Resultados")
-            st.dataframe(df_plano[["Número", "Coordenadas", "Med1", "Med2", "Med3", "Med4", "Promedio", "Resultado"]], use_container_width=True)
+            cols_mostrar = ["Número", "Coordenadas", "TipoArea", "Em_req", "Med1", "Med2", "Med3", "Med4", "Promedio", "Resultado"]
+            cols_existentes = [c for c in cols_mostrar if c in df_plano.columns]
+            st.dataframe(df_plano[cols_existentes].rename(columns={
+                "TipoArea": "Tipo de Área",
+                "Em_req": "Em req. (lx)"
+            }), use_container_width=True)
 
 
 # ============================================================================
