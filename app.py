@@ -732,12 +732,15 @@ def pagina_editar_plano():
     with col1:
         if st.button("🗑️ Eliminar último punto", key=f"eliminar_ultimo_{proyecto_actual}_{plano_actual}"):
             if plano_data["puntos"]:
+                ultimo_num = len(plano_data["puntos"])
                 plano_data["puntos"].pop()
+                plano_data["data"] = [d for d in plano_data["data"] if d["Número"] != ultimo_num]
                 guardar_proyectos(st.session_state.proyectos)
                 st.rerun()
     with col2:
         if st.button("🧹 Limpiar todos los puntos", key=f"limpiar_puntos_{proyecto_actual}_{plano_actual}"):
             plano_data["puntos"] = []
+            plano_data["data"] = []
             guardar_proyectos(st.session_state.proyectos)
             st.rerun()
     
@@ -751,6 +754,17 @@ def pagina_editar_plano():
             existing = next((d for d in plano_data["data"] if d["Número"] == i + 1), {})
 
             with st.expander(f"Punto {i+1} ({int(x)}, {int(y)})", expanded=False):
+
+                # Botón eliminar este punto específico
+                if st.button(f"🗑️ Eliminar punto {i+1}", key=f"del_punto_{proyecto_actual}_{plano_actual}_{i}"):
+                    plano_data["puntos"].pop(i)
+                    # Eliminar de data y renumerar
+                    plano_data["data"] = [d for d in plano_data["data"] if d["Número"] != i + 1]
+                    for d in plano_data["data"]:
+                        if d["Número"] > i + 1:
+                            d["Número"] -= 1
+                    guardar_proyectos(st.session_state.proyectos)
+                    st.rerun()
 
                 # Tipo de área individual por punto
                 tipos_area_list = list(RETILAP_REFERENCIA.keys())
@@ -888,3 +902,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
