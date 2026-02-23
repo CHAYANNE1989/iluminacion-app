@@ -13,7 +13,19 @@ from datetime import datetime
 # CONFIGURACIÓN Y CONSTANTES
 # ============================================================================
 
-PROYECTOS_FILE = "proyectos.json"
+PROYECTOS_DIR = "dispositivos"
+
+def get_device_id():
+    """Obtiene el ID del dispositivo desde query params."""
+    params = st.query_params
+    device_id = params.get("device_id", "default")
+    device_id = "".join(c for c in str(device_id) if c.isalnum() or c in "-_")
+    return device_id if device_id else "default"
+
+def get_proyectos_file():
+    """Retorna la ruta del JSON para este dispositivo."""
+    os.makedirs(PROYECTOS_DIR, exist_ok=True)
+    return os.path.join(PROYECTOS_DIR, f"proyectos_{get_device_id()}.json")
 
 RETILAP_REFERENCIA = {
     "Oficinas - Escritura y lectura detallada": {"Em": 500, "Uo": 0.60},
@@ -56,9 +68,9 @@ RETILAP_REFERENCIA = {
 
 def cargar_proyectos():
     """Carga proyectos desde JSON y reconstruye imágenes desde base64"""
-    if os.path.exists(PROYECTOS_FILE):
+    if os.path.exists(get_proyectos_file()):
         try:
-            with open(PROYECTOS_FILE, "r", encoding="utf-8") as f:
+            with open(get_proyectos_file(), "r", encoding="utf-8") as f:
                 proyectos_data = json.load(f)
                 proyectos = {}
                 
@@ -125,7 +137,7 @@ def guardar_proyectos(proyectos):
                 
                 serializable[p_name]["planos"][plano_name] = plano_dict
         
-        with open(PROYECTOS_FILE, "w", encoding="utf-8") as f:
+        with open(get_proyectos_file(), "w", encoding="utf-8") as f:
             json.dump(serializable, f, ensure_ascii=False, indent=4)
     except Exception as e:
         st.error(f"Error al guardar proyectos: {e}")
