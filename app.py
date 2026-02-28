@@ -346,23 +346,38 @@ def generar_reporte_pdf(proyecto_data, proyecto_nombre):
                         )
 
                     draw = ImageDraw.Draw(draw_img)
+                    # Tamaño de círculo y fuente proporcional al plano
+                    radio = max(18, min(30, draw_img.width // 60))
+                    font_size = max(14, min(22, radio - 4))
                     try:
-                        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
+                        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
                     except Exception:
-                        font = ImageFont.load_default(size=28)
+                        font = ImageFont.load_default()
 
                     for row in data_rows:
                         try:
                             coords = row["Coordenadas"]
-                            x, y = map(int, str(coords).strip("()").split(", "))
-                            clr = row.get("Color","gray")
-                            draw.ellipse((x-24, y-24, x+24, y+24), fill=clr)
+                            raw = str(coords).strip("()").split(", ")
+                            cx, cy = float(raw[0]), float(raw[1])
+                            # Coordenadas normalizadas (0-1) → píxeles del draw_img
+                            if cx <= 1.0 and cy <= 1.0:
+                                x = int(cx * draw_img.width)
+                                y = int(cy * draw_img.height)
+                            else:
+                                x, y = int(cx), int(cy)
+                            clr = row.get("Color", "gray")
+                            draw.ellipse((x-radio, y-radio, x+radio, y+radio), fill=clr)
                             txt = str(row["Número"])
                             bb = font.getbbox(txt)
-                            tw, th = bb[2]-bb[0], bb[3]-bb[1]
+                            tw = bb[2] - bb[0]
+                            th = bb[3] - bb[1]
+                            # Centrar número perfectamente
+                            tx = x - tw // 2
+                            ty = y - th // 2 - 1
+                            # Sombra negra + texto blanco
                             for dx, dy in [(-1,-1),(1,-1),(-1,1),(1,1)]:
-                                draw.text((x-tw//2+dx, y-th//2+dy), txt, fill="black", font=font)
-                            draw.text((x-tw//2, y-th//2), txt, fill="white", font=font)
+                                draw.text((tx+dx, ty+dy), txt, fill="black", font=font)
+                            draw.text((tx, ty), txt, fill="white", font=font)
                         except Exception:
                             pass
 
@@ -866,32 +881,30 @@ def pagina_editar_plano():
             df_plano = pd.DataFrame(plano_data["data"])
             draw_img = plano_img.copy()
             draw = ImageDraw.Draw(draw_img)
-            # Fuente grande para los números
+            radio = max(18, min(30, draw_img.width // 60))
+            font_size = max(14, min(22, radio - 4))
             try:
-                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
             except Exception:
-                font = ImageFont.load_default(size=28)
+                font = ImageFont.load_default()
 
             for _, r in df_plano.iterrows():
                 raw = r["Coordenadas"].strip("()").split(", ")
                 cx, cy = float(raw[0]), float(raw[1])
-                # Soporte para coordenadas normalizadas (<=1.0) y absolutas
                 x = int(cx * draw_img.width) if cx <= 1.0 else int(cx)
                 y = int(cy * draw_img.height) if cy <= 1.0 else int(cy)
                 color = r["Color"]
-                draw.ellipse((x - 24, y - 24, x + 24, y + 24), fill=color)
+                draw.ellipse((x - radio, y - radio, x + radio, y + radio), fill=color)
 
                 texto = str(r["Número"])
                 bbox = font.getbbox(texto)
-                text_width = bbox[2] - bbox[0]
-                text_height = bbox[3] - bbox[1]
-                text_x = x - text_width // 2
-                text_y = y - text_height // 2
-
-                # Sombra para que el número resalte más
+                tw = bbox[2] - bbox[0]
+                th = bbox[3] - bbox[1]
+                tx = x - tw // 2
+                ty = y - th // 2 - 1
                 for dx, dy in [(-1,-1),(1,-1),(-1,1),(1,1)]:
-                    draw.text((text_x+dx, text_y+dy), texto, fill="black", font=font)
-                draw.text((text_x, text_y), texto, fill="white", font=font)
+                    draw.text((tx+dx, ty+dy), texto, fill="black", font=font)
+                draw.text((tx, ty), texto, fill="white", font=font)
             
             st.image(draw_img, caption=f"Mapa - {plano_actual}", use_container_width=True)
             
