@@ -729,9 +729,11 @@ def pagina_editar_plano():
     )
     
     if clicked is not None:
-        x, y = clicked["x"], clicked["y"]
-        if not any(abs(px - x) < 12 and abs(py - y) < 12 for px, py in plano_data["puntos"]):
-            plano_data["puntos"].append((x, y))
+        # Normalizar coordenadas como porcentaje de la imagen original (0.0 - 1.0)
+        xn = clicked["x"] / plano_img.width
+        yn = clicked["y"] / plano_img.height
+        if not any(abs(px - xn) < 0.01 and abs(py - yn) < 0.01 for px, py in plano_data["puntos"]):
+            plano_data["puntos"].append((xn, yn))
             guardar_proyectos(st.session_state.proyectos)
             st.rerun()
     
@@ -758,7 +760,10 @@ def pagina_editar_plano():
     if plano_data["puntos"]:
         st.subheader("📊 Mediciones por punto")
         
-        for i, (x, y) in enumerate(plano_data["puntos"]):
+        for i, (xn, yn) in enumerate(plano_data["puntos"]):
+            # Reconvertir coordenadas normalizadas a píxeles reales
+            x = xn * plano_img.width if xn <= 1.0 else xn
+            y = yn * plano_img.height if yn <= 1.0 else yn
             # Cargar valores existentes para que no se pierdan en reruns
             existing = next((d for d in plano_data["data"] if d["Número"] == i + 1), {})
 
@@ -831,7 +836,7 @@ def pagina_editar_plano():
 
                     entrada = {
                         "Número": i + 1,
-                        "Coordenadas": f"({int(x)}, {int(y)})",
+                        "Coordenadas": f"({xn:.6f}, {yn:.6f})",
                         "TipoArea": tipo_area_punto,
                         "Em_req": em_sugerido,
                         "Uo_min": uo_min,
@@ -868,7 +873,11 @@ def pagina_editar_plano():
                 font = ImageFont.load_default(size=28)
 
             for _, r in df_plano.iterrows():
-                x, y = map(int, r["Coordenadas"].strip("()").split(", "))
+                raw = r["Coordenadas"].strip("()").split(", ")
+                cx, cy = float(raw[0]), float(raw[1])
+                # Soporte para coordenadas normalizadas (<=1.0) y absolutas
+                x = int(cx * draw_img.width) if cx <= 1.0 else int(cx)
+                y = int(cy * draw_img.height) if cy <= 1.0 else int(cy)
                 color = r["Color"]
                 draw.ellipse((x - 24, y - 24, x + 24, y + 24), fill=color)
 
