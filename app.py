@@ -5,6 +5,7 @@ import os
 import base64
 import json
 from pdf2image import convert_from_bytes
+from generar_word import generar_informe_word
 from streamlit_image_coordinates import streamlit_image_coordinates
 import io
 from datetime import datetime
@@ -16,14 +17,12 @@ from datetime import datetime
 PROYECTOS_DIR = "dispositivos"
 
 def get_device_id():
-    """Obtiene el ID del dispositivo desde query params."""
     params = st.query_params
     device_id = params.get("device_id", "default")
     device_id = "".join(c for c in str(device_id) if c.isalnum() or c in "-_")
     return device_id if device_id else "default"
 
 def get_proyectos_file():
-    """Retorna la ruta del JSON para este dispositivo."""
     os.makedirs(PROYECTOS_DIR, exist_ok=True)
     return os.path.join(PROYECTOS_DIR, f"proyectos_{get_device_id()}.json")
 
@@ -63,878 +62,823 @@ RETILAP_REFERENCIA = {
 }
 
 # ============================================================================
-# FUNCIONES DE PERSISTENCIA
+# CSS GLOBAL
+# ============================================================================
+
+def aplicar_estilos():
+    st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+
+    .main-header {
+        background: linear-gradient(135deg, #1a569a 0%, #0d3461 100%);
+        color: white;
+        padding: 1.1rem 1.4rem;
+        border-radius: 12px;
+        margin-bottom: 1.2rem;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        box-shadow: 0 4px 16px rgba(26,86,154,0.25);
+    }
+    .main-header h1 { margin: 0; font-size: 1.4rem; font-weight: 700; }
+    .main-header p  { margin: 0; font-size: 0.82rem; opacity: 0.75; }
+
+    .badge-ok  { background:#d1fae5; color:#065f46; border-radius:20px;
+                 padding:2px 10px; font-size:0.78rem; font-weight:600; }
+    .badge-err { background:#fee2e2; color:#991b1b; border-radius:20px;
+                 padding:2px 10px; font-size:0.78rem; font-weight:600; }
+    .badge-nd  { background:#f1f5f9; color:#475569; border-radius:20px;
+                 padding:2px 10px; font-size:0.78rem; font-weight:600; }
+
+    .em-box {
+        background: linear-gradient(90deg,#eff6ff,#f0f9ff);
+        border: 1px solid #bfdbfe;
+        border-radius: 8px;
+        padding: 0.45rem 1rem;
+        margin: 0.3rem 0 0.7rem;
+        font-size: 0.86rem;
+        color: #1e40af;
+    }
+
+    div[data-testid="stButton"] > button { border-radius: 8px; font-weight: 500; }
+    #MainMenu, footer { visibility: hidden; }
+    </style>
+    """, unsafe_allow_html=True)
+
+
+# ============================================================================
+# PERSISTENCIA
 # ============================================================================
 
 def cargar_proyectos():
-    """Carga proyectos desde JSON y reconstruye imágenes desde base64"""
-    if os.path.exists(get_proyectos_file()):
-        try:
-            with open(get_proyectos_file(), "r", encoding="utf-8") as f:
-                proyectos_data = json.load(f)
-                proyectos = {}
-                
-                for p_name, p_data in proyectos_data.items():
-                    proyectos[p_name] = {
-                        "general": p_data["general"],
-                        "planos": {}
-                    }
-                    
-                    for plano_name, plano_info in p_data["planos"].items():
-                        plano_dict = {
-                            "puntos": plano_info["puntos"],
-                            "data": plano_info["data"],
-                            "fotos": plano_info.get("fotos", {})
-                        }
-                        
-                        if "img_base64" in plano_info:
-                            try:
-                                img_bytes = base64.b64decode(plano_info["img_base64"])
-                                img = Image.open(io.BytesIO(img_bytes))
-                                if img.mode != 'RGB':
-                                    img = img.convert('RGB')
-                                plano_dict["img"] = img
-                            except Exception as e:
-                                plano_dict["img"] = None
-                        else:
-                            plano_dict["img"] = None
-                        
-                        proyectos[p_name]["planos"][plano_name] = plano_dict
-                
-                return proyectos
-        except Exception as e:
-            st.error(f"Error al cargar proyectos: {e}")
-            return {}
-    return {}
+    if not os.path.exists(get_proyectos_file()):
+        return {}
+    try:
+        with open(get_proyectos_file(), "r", encoding="utf-8") as f:
+            data = json.load(f)
+        proyectos = {}
+        for p_name, p_data in data.items():
+            proyectos[p_name] = {"general": p_data["general"], "planos": {}}
+            for pl_name, pl_info in p_data["planos"].items():
+                pd_ = {
+                    "puntos": pl_info["puntos"],
+                    "data":   pl_info["data"],
+                    "fotos":  pl_info.get("fotos", {})
+                }
+                if "img_base64" in pl_info:
+                    try:
+                        img_b = base64.b64decode(pl_info["img_base64"])
+                        img   = Image.open(io.BytesIO(img_b))
+                        if img.mode != 'RGB': img = img.convert('RGB')
+                        pd_["img"] = img
+                    except:
+                        pd_["img"] = None
+                else:
+                    pd_["img"] = None
+                proyectos[p_name]["planos"][pl_name] = pd_
+        return proyectos
+    except Exception as e:
+        st.error(f"Error al cargar: {e}")
+        return {}
 
 
 def guardar_proyectos(proyectos):
-    """Guarda proyectos a JSON, convirtiendo imágenes a base64"""
     try:
-        serializable = {}
-        
+        serial = {}
         for p_name, p_data in proyectos.items():
-            serializable[p_name] = {
-                "general": p_data["general"].copy(),
-                "planos": {}
-            }
-            
-            for plano_name, plano_info in p_data["planos"].items():
-                plano_dict = {
-                    "puntos": plano_info["puntos"].copy() if isinstance(plano_info["puntos"], list) else [],
-                    "data": [row.copy() for row in plano_info["data"]] if isinstance(plano_info["data"], list) else [],
-                    "fotos": {}
+            serial[p_name] = {"general": p_data["general"].copy(), "planos": {}}
+            for pl_name, pl_info in p_data["planos"].items():
+                pd_ = {
+                    "puntos": pl_info["puntos"].copy() if isinstance(pl_info["puntos"], list) else [],
+                    "data":   [r.copy() for r in pl_info["data"]] if isinstance(pl_info["data"], list) else [],
+                    "fotos":  {}
                 }
-                
-                if plano_info.get("img") is not None:
+                for k, v in pl_info.get("fotos", {}).items():
+                    pd_["fotos"][str(k)] = (base64.b64encode(v).decode() if isinstance(v, bytes) else v)
+                if pl_info.get("img"):
                     try:
-                        img_bytes = io.BytesIO()
-                        plano_info["img"].save(img_bytes, format="PNG")
-                        img_bytes.seek(0)
-                        plano_dict["img_base64"] = base64.b64encode(img_bytes.read()).decode()
+                        buf = io.BytesIO()
+                        pl_info["img"].save(buf, format="PNG")
+                        pd_["img_base64"] = base64.b64encode(buf.getvalue()).decode()
                     except Exception as e:
-                        st.warning(f"⚠️ No se pudo guardar la imagen del plano '{plano_name}': {e}")
-                
-                serializable[p_name]["planos"][plano_name] = plano_dict
-        
+                        st.warning(f"⚠️ No se guardó imagen '{pl_name}': {e}")
+                serial[p_name]["planos"][pl_name] = pd_
         with open(get_proyectos_file(), "w", encoding="utf-8") as f:
-            json.dump(serializable, f, ensure_ascii=False, indent=4)
+            json.dump(serial, f, ensure_ascii=False, indent=4)
     except Exception as e:
-        st.error(f"Error al guardar proyectos: {e}")
+        st.error(f"Error al guardar: {e}")
 
+
+def cargar_foto_punto(plano_info, num):
+    v = plano_info.get("fotos", {}).get(str(num)) or plano_info.get("fotos", {}).get(num)
+    if isinstance(v, str):
+        try:    return base64.b64decode(v)
+        except: return None
+    return v if isinstance(v, bytes) else None
+
+
+# ============================================================================
+# HELPER: dibujar puntos proporcionales al plano
+# ============================================================================
+
+def dibujar_puntos(img, data_rows):
+    """
+    Círculos proporcionales al tamaño real del plano:
+    radio = 1.2% del lado menor, entre 10 y 22 px.
+    Así en planos grandes los círculos no quedan enormes.
+    """
+    draw_img = img.copy()
+    if not data_rows:
+        return draw_img
+
+    draw = ImageDraw.Draw(draw_img)
+    lado  = min(draw_img.width, draw_img.height)
+    radio = max(10, min(22, int(lado * 0.012)))
+    fsize = max(9,  min(16, radio - 1))
+    try:
+        font = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", fsize)
+    except:
+        font = ImageFont.load_default()
+
+    for row in data_rows:
+        try:
+            raw = str(row["Coordenadas"]).strip("()").split(", ")
+            cx, cy = float(raw[0]), float(raw[1])
+            x = int(cx * draw_img.width)  if cx <= 1.0 else int(cx)
+            y = int(cy * draw_img.height) if cy <= 1.0 else int(cy)
+            clr = row.get("Color", "gray")
+            draw.ellipse((x-radio-1, y-radio-1, x+radio+1, y+radio+1), fill="white")
+            draw.ellipse((x-radio,   y-radio,   x+radio,   y+radio),   fill=clr)
+            txt = str(row["Número"])
+            bb  = font.getbbox(txt)
+            tw, th = bb[2]-bb[0], bb[3]-bb[1]
+            tx, ty = x - tw//2, y - th//2 - 1
+            for dx, dy in [(-1,-1),(1,-1),(-1,1),(1,1)]:
+                draw.text((tx+dx, ty+dy), txt, fill="black", font=font)
+            draw.text((tx, ty), txt, fill="white", font=font)
+        except:
+            pass
+    return draw_img
+
+
+# ============================================================================
+# REPORTES CSV Y PDF
+# ============================================================================
 
 def generar_reporte_csv(proyecto_data, proyecto_nombre):
-    """Genera un reporte en CSV"""
-    reportes = []
-    
-    for plano_nombre, plano_info in proyecto_data["planos"].items():
-        if not plano_info["data"]:
-            continue
-        
-        for row in plano_info["data"]:
-            reportes.append({
-                "Proyecto": proyecto_nombre,
-                "Plano": plano_nombre,
-                "Punto": row["Número"],
-                "Coordenadas": row["Coordenadas"],
-                "Tipo de Área": row.get("TipoArea", "N/A"),
-                "Em requerida (lx)": row.get("Em_req", "N/A"),
-                "Uo mínima": row.get("Uo_min", "N/A"),
-                "Med1": row["Med1"],
-                "Med2": row["Med2"],
-                "Med3": row["Med3"],
-                "Med4": row["Med4"],
-                "Promedio": row["Promedio"],
-                "Resultado": row["Resultado"],
-                "Nota": row["Nota"]
+    rows = []
+    for pln, pi in proyecto_data["planos"].items():
+        for r in pi.get("data", []):
+            rows.append({
+                "Proyecto": proyecto_nombre, "Plano": pln,
+                "Punto": r["Número"], "Tipo de Área": r.get("TipoArea",""),
+                "Em req.(lx)": r.get("Em_req",""), "Med1": r.get("Med1",""),
+                "Med2": r.get("Med2",""), "Med3": r.get("Med3",""),
+                "Med4": r.get("Med4",""), "Promedio": r.get("Promedio",""),
+                "Resultado": r.get("Resultado",""), "Nota": r.get("Nota","")
             })
-    
-    if reportes:
-        df = pd.DataFrame(reportes)
-        return df.to_csv(index=False).encode('utf-8')
+    if rows:
+        return pd.DataFrame(rows).to_csv(index=False).encode('utf-8')
     return None
 
 
 def generar_reporte_pdf(proyecto_data, proyecto_nombre):
-    """
-    Genera un reporte profesional en PDF usando reportlab.
-    Incluye portada, tabla de mediciones por plano y mapa de puntos anotado.
-    """
     try:
-        from reportlab.lib.pagesizes import letter, landscape
+        from reportlab.lib.pagesizes import letter
         from reportlab.lib import colors
         from reportlab.lib.units import inch, cm
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-        from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
-        from reportlab.platypus import (
-            SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-            PageBreak, Image as RLImage, HRFlowable
-        )
-        from reportlab.platypus.flowables import KeepTogether
+        from reportlab.lib.enums import TA_CENTER
+        from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer,
+                                        Table, TableStyle, PageBreak,
+                                        Image as RLImage, HRFlowable)
+        buf = io.BytesIO()
+        doc = SimpleDocTemplate(buf, pagesize=letter,
+                                rightMargin=2*cm, leftMargin=2*cm,
+                                topMargin=2*cm, bottomMargin=2*cm)
+        S   = getSampleStyleSheet()
+        eTi = ParagraphStyle('T', parent=S['Title'], fontSize=18,
+                              textColor=colors.HexColor('#1a3a5c'), alignment=TA_CENTER)
+        eSu = ParagraphStyle('S', parent=S['Normal'], fontSize=11,
+                              textColor=colors.HexColor('#2c6fad'), alignment=TA_CENTER)
+        eSe = ParagraphStyle('H', parent=S['Heading2'], fontSize=12,
+                              textColor=colors.HexColor('#1a3a5c'), spaceBefore=10, spaceAfter=4)
+        eNo = ParagraphStyle('N', parent=S['Normal'], fontSize=9, spaceAfter=3)
+        ePi = ParagraphStyle('P', parent=S['Normal'], fontSize=7,
+                              textColor=colors.grey, alignment=TA_CENTER)
 
-        buffer = io.BytesIO()
-        doc = SimpleDocTemplate(
-            buffer,
-            pagesize=letter,
-            rightMargin=2*cm,
-            leftMargin=2*cm,
-            topMargin=2*cm,
-            bottomMargin=2*cm
-        )
-
-        styles = getSampleStyleSheet()
-        story = []
-
-        # ---- Estilos personalizados ----
-        estilo_titulo = ParagraphStyle(
-            'Titulo',
-            parent=styles['Title'],
-            fontSize=20,
-            textColor=colors.HexColor('#1a3a5c'),
-            spaceAfter=6,
-            alignment=TA_CENTER,
-        )
-        estilo_subtitulo = ParagraphStyle(
-            'Subtitulo',
-            parent=styles['Normal'],
-            fontSize=12,
-            textColor=colors.HexColor('#2c6fad'),
-            spaceAfter=4,
-            alignment=TA_CENTER,
-        )
-        estilo_seccion = ParagraphStyle(
-            'Seccion',
-            parent=styles['Heading2'],
-            fontSize=13,
-            textColor=colors.HexColor('#1a3a5c'),
-            spaceBefore=16,
-            spaceAfter=8,
-            borderPad=4,
-        )
-        estilo_normal = ParagraphStyle(
-            'Normal2',
-            parent=styles['Normal'],
-            fontSize=10,
-            spaceAfter=4,
-        )
-        estilo_pie = ParagraphStyle(
-            'Pie',
-            parent=styles['Normal'],
-            fontSize=8,
-            textColor=colors.grey,
-            alignment=TA_CENTER,
-        )
-
-        general = proyecto_data.get("general", {})
-
-        # ================================================================
-        # PORTADA
-        # ================================================================
-        story.append(Spacer(1, 1.5*inch))
-        story.append(Paragraph("💡 REPORTE DE AUDITORÍA DE ILUMINACIÓN", estilo_titulo))
-        story.append(Paragraph("Norma RETILAP 2024", estilo_subtitulo))
-        story.append(Spacer(1, 0.3*inch))
-        story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor('#2c6fad')))
-        story.append(Spacer(1, 0.3*inch))
-
-        # Tabla de datos del proyecto
-        info_data = [
+        g     = proyecto_data.get("general", {})
+        story = [
+            Spacer(1, 0.8*inch),
+            Paragraph("REPORTE DE AUDITORÍA DE ILUMINACIÓN", eTi),
+            Paragraph("Norma RETILAP 2024", eSu),
+            Spacer(1, 0.2*inch),
+            HRFlowable(width="100%", thickness=2, color=colors.HexColor('#2c6fad')),
+            Spacer(1, 0.2*inch),
+        ]
+        info  = [
             ["Proyecto:", proyecto_nombre],
-            ["Orden de trabajo:", general.get("numero_orden", "N/A")],
-            ["Empresa:", general.get("nombre_empresa", "N/A")],
-            ["Sede:", general.get("sede", "N/A")],
-            ["Fecha:", general.get("fecha", "N/A")],
-            ["Tipo de área:", general.get("tipo_area", "N/A")],
+            ["Orden:", g.get("numero_orden","N/A")],
+            ["Empresa:", g.get("nombre_empresa","N/A")],
+            ["NIT:", g.get("nit","N/A")],
+            ["Dirección:", g.get("direccion","N/A")],
+            ["Ciudad:", g.get("sede","N/A")],
+            ["Fecha:", g.get("fecha","N/A")],
+            ["Higienista:", g.get("responsable_higienista","N/A")],
+            ["Resolución SST:", g.get("resolucion","N/A")],
             ["Generado:", datetime.now().strftime("%d/%m/%Y %H:%M")],
         ]
-
-        tabla_info = Table(info_data, colWidths=[3.5*cm, 12*cm])
-        tabla_info.setStyle(TableStyle([
-            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
-            ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 11),
-            ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor('#1a3a5c')),
-            ('ROWBACKGROUNDS', (0, 0), (-1, -1), [colors.HexColor('#f0f4f8'), colors.white]),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#ccddee')),
-            ('TOPPADDING', (0, 0), (-1, -1), 6),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-            ('LEFTPADDING', (0, 0), (-1, -1), 10),
+        tI = Table(info, colWidths=[3.2*cm, 12.8*cm])
+        tI.setStyle(TableStyle([
+            ('FONTNAME',(0,0),(0,-1),'Helvetica-Bold'),('FONTSIZE',(0,0),(-1,-1),9),
+            ('TEXTCOLOR',(0,0),(0,-1),colors.HexColor('#1a3a5c')),
+            ('ROWBACKGROUNDS',(0,0),(-1,-1),[colors.HexColor('#f0f4f8'),colors.white]),
+            ('GRID',(0,0),(-1,-1),0.4,colors.HexColor('#ccddee')),
+            ('TOPPADDING',(0,0),(-1,-1),4),('BOTTOMPADDING',(0,0),(-1,-1),4),
+            ('LEFTPADDING',(0,0),(-1,-1),8),
         ]))
-        story.append(tabla_info)
-        story.append(Spacer(1, 0.5*inch))
+        story.append(tI); story.append(Spacer(1, 0.25*inch))
 
-        # Resumen general de conformidad
-        total_puntos = 0
-        conformes = 0
-        no_conformes = 0
-        for plano_info in proyecto_data["planos"].values():
-            for row in plano_info.get("data", []):
-                total_puntos += 1
-                if "✅" in str(row.get("Resultado", "")):
-                    conformes += 1
-                else:
-                    no_conformes += 1
-
-        if total_puntos > 0:
-            pct = round(conformes / total_puntos * 100, 1)
-            color_pct = colors.HexColor('#27ae60') if pct >= 80 else colors.HexColor('#e74c3c')
-
-            resumen_data = [
-                ["Total puntos medidos", "Conformes", "No conformes", "% Conformidad"],
-                [str(total_puntos), str(conformes), str(no_conformes), f"{pct}%"],
-            ]
-            tabla_resumen = Table(resumen_data, colWidths=[4*cm]*4)
-            tabla_resumen.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1a3a5c')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTNAME', (0, 1), (-1, 1), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, -1), 11),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ('ROWHEIGHTS', (0, 0), (-1, -1), 28),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#ccddee')),
-                ('TEXTCOLOR', (3, 1), (3, 1), color_pct),
-                ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor('#f0f4f8')),
+        tot = conf = 0
+        for pi in proyecto_data["planos"].values():
+            for r in pi.get("data",[]):
+                tot += 1
+                if "✅" in str(r.get("Resultado","")): conf += 1
+        if tot > 0:
+            pct = round(conf/tot*100, 1)
+            rD  = [["Total","Conformes","Deficientes","% Conformidad"],
+                   [str(tot), str(conf), str(tot-conf), f"{pct}%"]]
+            tR  = Table(rD, colWidths=[4*cm]*4)
+            tR.setStyle(TableStyle([
+                ('BACKGROUND',(0,0),(-1,0),colors.HexColor('#1a3a5c')),
+                ('TEXTCOLOR',(0,0),(-1,0),colors.white),
+                ('FONTNAME',(0,0),(-1,-1),'Helvetica-Bold'),('FONTSIZE',(0,0),(-1,-1),10),
+                ('ALIGN',(0,0),(-1,-1),'CENTER'),
+                ('GRID',(0,0),(-1,-1),0.4,colors.HexColor('#ccddee')),
+                ('BACKGROUND',(0,1),(-1,1),colors.HexColor('#f0f4f8')),
+                ('TEXTCOLOR',(3,1),(3,1),
+                 colors.HexColor('#27ae60') if pct>=80 else colors.HexColor('#e74c3c')),
             ]))
-            story.append(tabla_resumen)
-
+            story.append(tR)
         story.append(PageBreak())
 
-        # ================================================================
-        # SECCIÓN POR PLANO
-        # ================================================================
-        for plano_nombre, plano_info in proyecto_data["planos"].items():
-            data_rows = plano_info.get("data", [])
-            plano_img = plano_info.get("img")
+        for pln, pi in proyecto_data["planos"].items():
+            drows = pi.get("data",[])
+            pimg  = pi.get("img")
+            story.append(Paragraph(f"Plano: {pln}", eSe))
+            story.append(HRFlowable(width="100%",thickness=1,color=colors.HexColor('#ccddee')))
+            story.append(Spacer(1,0.08*inch))
 
-            story.append(Paragraph(f"📐 Plano: {plano_nombre}", estilo_seccion))
-            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#ccddee')))
-            story.append(Spacer(1, 0.15*inch))
-
-            # Mapa de puntos anotado
-            if plano_img is not None and data_rows:
+            if pimg and drows:
                 try:
-                    draw_img = plano_img.copy()
-
-                    # Escalar si es muy grande
-                    max_w = 1400
-                    if draw_img.width > max_w:
-                        ratio = max_w / draw_img.width
-                        draw_img = draw_img.resize(
-                            (max_w, int(draw_img.height * ratio)), Image.LANCZOS
-                        )
-
-                    draw = ImageDraw.Draw(draw_img)
-                    # Tamaño de círculo y fuente proporcional al plano
-                    radio = max(18, min(30, draw_img.width // 60))
-                    font_size = max(14, min(22, radio - 4))
-                    try:
-                        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
-                    except Exception:
-                        font = ImageFont.load_default()
-
-                    for row in data_rows:
-                        try:
-                            coords = row["Coordenadas"]
-                            raw = str(coords).strip("()").split(", ")
-                            cx, cy = float(raw[0]), float(raw[1])
-                            # Coordenadas normalizadas (0-1) → píxeles del draw_img
-                            if cx <= 1.0 and cy <= 1.0:
-                                x = int(cx * draw_img.width)
-                                y = int(cy * draw_img.height)
-                            else:
-                                x, y = int(cx), int(cy)
-                            clr = row.get("Color", "gray")
-                            draw.ellipse((x-radio, y-radio, x+radio, y+radio), fill=clr)
-                            txt = str(row["Número"])
-                            bb = font.getbbox(txt)
-                            tw = bb[2] - bb[0]
-                            th = bb[3] - bb[1]
-                            # Centrar número perfectamente
-                            tx = x - tw // 2
-                            ty = y - th // 2 - 1
-                            # Sombra negra + texto blanco
-                            for dx, dy in [(-1,-1),(1,-1),(-1,1),(1,1)]:
-                                draw.text((tx+dx, ty+dy), txt, fill="black", font=font)
-                            draw.text((tx, ty), txt, fill="white", font=font)
-                        except Exception:
-                            pass
-
-                    # Insertar imagen en el PDF
-                    img_buffer = io.BytesIO()
-                    draw_img.save(img_buffer, format="PNG")
-                    img_buffer.seek(0)
-
-                    page_w = letter[0] - 4*cm
-                    aspect = draw_img.height / draw_img.width
-                    img_h = min(page_w * aspect, 5*inch)
-
-                    rl_img = RLImage(img_buffer, width=page_w, height=img_h)
-                    story.append(rl_img)
-                    story.append(Spacer(1, 0.2*inch))
+                    an = dibujar_puntos(pimg, drows)
+                    if an.width > 1400:
+                        r = 1400/an.width
+                        an = an.resize((1400, int(an.height*r)), Image.LANCZOS)
+                    b = io.BytesIO(); an.save(b, format="PNG"); b.seek(0)
+                    pw = letter[0]-4*cm
+                    ph = min(pw*an.height/an.width, 5*inch)
+                    story += [RLImage(b, width=pw, height=ph), Spacer(1,0.12*inch)]
                 except Exception as e:
-                    story.append(Paragraph(f"(No se pudo renderizar el mapa: {e})", estilo_normal))
+                    story.append(Paragraph(f"(Error mapa: {e})", eNo))
 
-            # Tabla de mediciones
-            if data_rows:
-                story.append(Paragraph("Tabla de mediciones:", estilo_normal))
-
-                encabezado = ["#", "Tipo de Área", "Em req.", "Med1", "Med2", "Med3", "Med4", "Promedio", "Resultado", "Nota"]
-                filas = [encabezado]
-
-                for row in data_rows:
-                    filas.append([
-                        str(row.get("Número", "")),
-                        str(row.get("TipoArea", "N/A"))[:35],
-                        f"{row.get('Em_req', 'N/A')} lx",
-                        str(row.get("Med1", "")),
-                        str(row.get("Med2", "")),
-                        str(row.get("Med3", "")),
-                        str(row.get("Med4", "")),
-                        str(row.get("Promedio", "")),
-                        "Conforme" if "✅" in str(row.get("Resultado", "")) else "No conforme",
-                        str(row.get("Nota", ""))[:40],
-                    ])
-
-                col_widths = [0.8*cm, 4.5*cm, 1.8*cm, 1.5*cm, 1.5*cm, 1.5*cm, 1.5*cm, 2*cm, 2.2*cm, 3*cm]
-                tabla = Table(filas, colWidths=col_widths, repeatRows=1)
-
-                estilos_tabla = [
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1a3a5c')),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, -1), 8),
-                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                    ('GRID', (0, 0), (-1, -1), 0.4, colors.HexColor('#aaccee')),
-                    ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f4f8')]),
-                    ('TOPPADDING', (0, 0), (-1, -1), 4),
-                    ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            if drows:
+                enc = ["#","Área","Em req.","Med1","Med2","Med3","Med4","Prom.","Result.","Obs."]
+                fls = [enc]+[[
+                    str(r.get("Número","")), str(r.get("TipoArea",""))[:28],
+                    f"{r.get('Em_req','?')} lx", str(r.get("Med1","")),
+                    str(r.get("Med2","")), str(r.get("Med3","")), str(r.get("Med4","")),
+                    str(r.get("Promedio","")),
+                    "✓ OK" if "✅" in str(r.get("Resultado","")) else "✗ NO",
+                    str(r.get("Nota",""))[:30]
+                ] for r in drows]
+                cw  = [0.7*cm,3.8*cm,1.7*cm,1.3*cm,1.3*cm,1.3*cm,1.3*cm,1.7*cm,1.8*cm,2.7*cm]
+                tab = Table(fls, colWidths=cw, repeatRows=1)
+                ts  = [
+                    ('BACKGROUND',(0,0),(-1,0),colors.HexColor('#1a3a5c')),
+                    ('TEXTCOLOR',(0,0),(-1,0),colors.white),
+                    ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),
+                    ('FONTSIZE',(0,0),(-1,-1),7.5),
+                    ('ALIGN',(0,0),(-1,-1),'CENTER'),
+                    ('GRID',(0,0),(-1,-1),0.3,colors.HexColor('#aaccee')),
+                    ('ROWBACKGROUNDS',(0,1),(-1,-1),[colors.white,colors.HexColor('#f0f4f8')]),
+                    ('TOPPADDING',(0,0),(-1,-1),3),('BOTTOMPADDING',(0,0),(-1,-1),3),
                 ]
-
-                # Colorear columna Resultado
-                for i, row in enumerate(data_rows, start=1):
-                    if "✅" in str(row.get("Resultado", "")):
-                        estilos_tabla.append(('TEXTCOLOR', (7, i), (7, i), colors.HexColor('#27ae60')))
-                        estilos_tabla.append(('FONTNAME', (7, i), (7, i), 'Helvetica-Bold'))
-                    else:
-                        estilos_tabla.append(('TEXTCOLOR', (7, i), (7, i), colors.HexColor('#e74c3c')))
-                        estilos_tabla.append(('FONTNAME', (7, i), (7, i), 'Helvetica-Bold'))
-
-                tabla.setStyle(TableStyle(estilos_tabla))
-                story.append(tabla)
+                for i, r in enumerate(drows, 1):
+                    c = (colors.HexColor('#27ae60') if "✅" in str(r.get("Resultado",""))
+                         else colors.HexColor('#e74c3c'))
+                    ts += [('TEXTCOLOR',(8,i),(8,i),c),('FONTNAME',(8,i),(8,i),'Helvetica-Bold')]
+                tab.setStyle(TableStyle(ts))
+                story.append(tab)
             else:
-                story.append(Paragraph("Sin mediciones registradas en este plano.", estilo_normal))
+                story.append(Paragraph("Sin mediciones.", eNo))
+            story += [Spacer(1,0.15*inch), PageBreak()]
 
-            story.append(Spacer(1, 0.3*inch))
-            story.append(PageBreak())
-
-        # ================================================================
-        # PIE DE PÁGINA / NOTA LEGAL
-        # ================================================================
-        story.append(Spacer(1, 0.5*inch))
-        story.append(HRFlowable(width="100%", thickness=1, color=colors.grey))
-        story.append(Spacer(1, 0.1*inch))
-        story.append(Paragraph(
-            f"Reporte generado automáticamente · Auditoría Iluminación RETILAP 2024 · "
-            f"{datetime.now().strftime('%d/%m/%Y %H:%M')}",
-            estilo_pie
-        ))
-
+        story += [HRFlowable(width="100%",thickness=1,color=colors.grey),
+                  Spacer(1,0.08*inch),
+                  Paragraph(f"RETILAP 2024 · {datetime.now().strftime('%d/%m/%Y %H:%M')}", ePi)]
         doc.build(story)
-        buffer.seek(0)
-        return buffer.getvalue()
-
+        buf.seek(0)
+        return buf.getvalue()
     except ImportError:
-        st.error("❌ Falta instalar reportlab. Agrega 'reportlab' a requirements.txt")
-        return None
+        st.error("❌ Instala reportlab en requirements.txt"); return None
     except Exception as e:
-        st.error(f"❌ Error al generar PDF: {e}")
-        return None
+        st.error(f"❌ Error PDF: {e}"); return None
 
 
 # ============================================================================
-# INICIALIZACIÓN DE SESSION STATE
+# SESSION STATE
 # ============================================================================
 
 def inicializar_session_state():
-    """Inicializa las variables de sesión necesarias"""
     try:
         if "proyectos" not in st.session_state:
             st.session_state.proyectos = cargar_proyectos()
-            if not isinstance(st.session_state.proyectos, dict):
-                st.session_state.proyectos = {}
-
         if "pagina" not in st.session_state:
             st.session_state.pagina = "inicio"
-
         if "proyecto_actual" not in st.session_state:
             st.session_state.proyecto_actual = None
     except Exception as e:
-        st.error(f"Error al inicializar: {str(e)}")
+        st.error(f"Error al inicializar: {e}")
         st.session_state.proyectos = {}
         st.session_state.pagina = "inicio"
         st.session_state.proyecto_actual = None
 
 
 # ============================================================================
-# PÁGINAS DE LA APLICACIÓN
+# PÁGINA: INICIO
 # ============================================================================
 
 def pagina_inicio():
-    """Página inicial con lista de proyectos"""
-    st.title("💡 Auditoría Iluminación RETILAP 2024")
-    
-    col1, col2 = st.columns([3, 1])
-    
-    with col1:
-        st.subheader("📋 Proyectos Guardados")
-    
-    with col2:
-        if st.button("➕ Nuevo Proyecto", key="btn_nuevo_proyecto"):
-            st.session_state.pagina = "nuevo_proyecto"
-            st.rerun()
-    
-    if st.session_state.proyectos:
-        proyectos_list = list(st.session_state.proyectos.items())
-        for idx, (proyecto_nombre, proyecto_data) in enumerate(proyectos_list):
-            with st.container(border=True):
-                col_info, col_buttons = st.columns([3, 1])
-                
-                with col_info:
-                    st.write(f"**{proyecto_nombre}**")
-                    st.caption(f"Orden: {proyecto_data['general'].get('numero_orden', 'N/A')}")
-                    st.caption(f"Empresa: {proyecto_data['general'].get('nombre_empresa', 'N/A')}")
-                    st.caption(f"Sede: {proyecto_data['general'].get('sede', 'N/A')}")
-                    st.caption(f"Fecha: {proyecto_data['general'].get('fecha', 'N/A')}")
-                
-                with col_buttons:
-                    # Botón Editar
-                    if st.button("✏️ Editar", key=f"btn_editar_{idx}_{proyecto_nombre}"):
-                        st.session_state.proyecto_actual = proyecto_nombre
-                        st.session_state.pagina = "editar_proyecto"
-                        st.rerun()
+    st.markdown("""
+    <div class="main-header">
+      <span style="font-size:2.2rem">💡</span>
+      <div>
+        <h1>LuxOMeter PRO</h1>
+        <p>Auditoría de Iluminación · Norma RETILAP 2024</p>
+      </div>
+    </div>""", unsafe_allow_html=True)
 
-                    # Descarga CSV — siempre visible (fix bug download_button anidado)
-                    csv_data = generar_reporte_csv(proyecto_data, proyecto_nombre)
-                    if csv_data:
-                        st.download_button(
-                            label="📊 Descargar CSV",
-                            data=csv_data,
-                            file_name=f"Reporte_{proyecto_nombre.replace(' ', '_')}.csv",
-                            mime="text/csv",
-                            key=f"download_csv_{idx}_{proyecto_nombre}"
-                        )
+    c1, c2 = st.columns([3,1])
+    with c1: st.subheader("📋 Proyectos")
+    with c2:
+        if st.button("➕ Nuevo Proyecto", use_container_width=True, key="btn_np"):
+            st.session_state.pagina = "nuevo_proyecto"; st.rerun()
 
-                    # Descarga PDF
-                    pdf_data = generar_reporte_pdf(proyecto_data, proyecto_nombre)
-                    if pdf_data:
-                        st.download_button(
-                            label="📄 Descargar PDF",
-                            data=pdf_data,
-                            file_name=f"Reporte_{proyecto_nombre.replace(' ', '_')}.pdf",
-                            mime="application/pdf",
-                            key=f"download_pdf_{idx}_{proyecto_nombre}"
-                        )
-
-                    # Eliminar
-                    if st.button("🗑️ Eliminar", key=f"btn_eliminar_{idx}_{proyecto_nombre}"):
-                        if proyecto_nombre in st.session_state.proyectos:
-                            del st.session_state.proyectos[proyecto_nombre]
-                            guardar_proyectos(st.session_state.proyectos)
-                            st.success(f"✅ Proyecto '{proyecto_nombre}' eliminado")
-                            st.rerun()
-    else:
+    if not st.session_state.proyectos:
         st.info("ℹ️ No hay proyectos guardados. Crea uno nuevo para comenzar.")
+        return
 
+    for idx, (pnombre, pdata) in enumerate(st.session_state.proyectos.items()):
+        g = pdata["general"]
+        tot = conf = 0
+        for pi in pdata["planos"].values():
+            for d in pi.get("data",[]):
+                tot += 1
+                if "✅" in str(d.get("Resultado","")): conf += 1
+
+        with st.container(border=True):
+            ci, cb = st.columns([3,1])
+            with ci:
+                st.markdown(f"**{g.get('nombre_empresa','Sin nombre')}**")
+                st.caption(f"📋 OT: {g.get('numero_orden','N/A')}  |  "
+                           f"📍 {g.get('sede','N/A')}  |  📅 {g.get('fecha','N/A')}")
+                if tot > 0:
+                    pct   = round(conf/tot*100)
+                    badge = "ok" if pct>=80 else "err"
+                    icono = "✅" if pct>=80 else "⚠️"
+                    st.markdown(f"<span class='badge-{badge}'>{icono} {conf}/{tot} "
+                                f"puntos conformes ({pct}%)</span>", unsafe_allow_html=True)
+                else:
+                    st.markdown("<span class='badge-nd'>Sin mediciones</span>",
+                                unsafe_allow_html=True)
+
+            with cb:
+                if st.button("✏️ Editar", key=f"ed_{idx}", use_container_width=True):
+                    st.session_state.proyecto_actual = pnombre
+                    st.session_state.pagina = "editar_proyecto"; st.rerun()
+
+                csv_d = generar_reporte_csv(pdata, pnombre)
+                if csv_d:
+                    st.download_button("📊 CSV", data=csv_d,
+                        file_name=f"RETILAP_{pnombre[:18].replace(' ','_')}.csv",
+                        mime="text/csv", key=f"csv_{idx}", use_container_width=True)
+
+                pdf_d = generar_reporte_pdf(pdata, pnombre)
+                if pdf_d:
+                    st.download_button("📄 PDF", data=pdf_d,
+                        file_name=f"RETILAP_{pnombre[:18].replace(' ','_')}.pdf",
+                        mime="application/pdf", key=f"pdf_{idx}", use_container_width=True)
+
+                if st.button("📝 Word", key=f"word_{idx}", use_container_width=True):
+                    with st.spinner("Generando Word..."):
+                        try:
+                            todas_med = []
+                            for pln, pi in pdata.get("planos",{}).items():
+                                for d in pi.get("data",[]):
+                                    todas_med.append({
+                                        "num": d.get("Número",0),
+                                        "area": d.get("TipoArea",""),
+                                        "tipo_iluminacion": d.get("TipoIluminacion",""),
+                                        "tipo_lampara": d.get("TipoLampara",""),
+                                        "ubicacion_luminaria": d.get("UbicacionLuminaria",""),
+                                        "med1": d.get("Med1",0),"med2": d.get("Med2",0),
+                                        "med3": d.get("Med3",0),"med4": d.get("Med4",0),
+                                        "promedio": d.get("Promedio",0),
+                                        "em_req": d.get("Em_req",0),
+                                        "resultado": d.get("Resultado",""),
+                                        "nota": d.get("Nota",""),
+                                        "recomendacion": d.get("Recomendacion",""),
+                                    })
+                            plano_imgs = {
+                                pln: dibujar_puntos(pi["img"], pi["data"])
+                                for pln, pi in pdata.get("planos",{}).items()
+                                if pi.get("img") and pi.get("data")
+                            }
+                            word_buf = generar_informe_word(g, todas_med, plano_imgs)
+                            fname    = (f"Informe_RETILAP_"
+                                        f"{g.get('nombre_empresa','').replace(' ','_')}"
+                                        f"_{datetime.now().strftime('%Y%m%d')}.docx")
+                            st.download_button("⬇️ Descargar Word", data=word_buf,
+                                file_name=fname,
+                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                key=f"dlw_{idx}")
+                            st.success("✅ Listo.")
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+
+                if st.button("🗑️ Eliminar", key=f"del_{idx}", use_container_width=True):
+                    del st.session_state.proyectos[pnombre]
+                    guardar_proyectos(st.session_state.proyectos); st.rerun()
+
+
+# ============================================================================
+# PÁGINA: NUEVO PROYECTO
+# ============================================================================
 
 def pagina_nuevo_proyecto():
-    """Página para crear un nuevo proyecto"""
-    st.title("➕ Nuevo Proyecto")
-    
-    if st.button("← Volver", key="btn_volver_nuevo"):
-        st.session_state.pagina = "inicio"
-        st.rerun()
-    
-    st.subheader("📝 Datos del Proyecto")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        numero_orden = st.text_input("Número de Orden", key="input_numero_orden")
-        nombre_empresa = st.text_input("Nombre de la Empresa", key="input_nombre_empresa")
-    
-    with col2:
-        sede = st.text_input("Sede", key="input_sede")
-        fecha = st.date_input("Fecha", key="input_fecha")
-    
-    if st.button("✅ Crear Proyecto", key="btn_crear_proyecto"):
-        if numero_orden and nombre_empresa and sede:
-            proyecto_nombre = f"{nombre_empresa} - {sede} ({fecha.strftime('%Y-%m-%d')})"
-            
-            if proyecto_nombre not in st.session_state.proyectos:
-                st.session_state.proyectos[proyecto_nombre] = {
+    st.markdown('<div class="main-header"><span style="font-size:2rem">➕</span>'
+                '<div><h1>Nuevo Proyecto</h1></div></div>', unsafe_allow_html=True)
+    if st.button("← Volver", key="volver_np"):
+        st.session_state.pagina = "inicio"; st.rerun()
+
+    with st.form("form_nuevo"):
+        st.subheader("🏢 Datos de la Empresa")
+        c1, c2 = st.columns(2)
+        with c1:
+            num_orden = st.text_input("N° Orden de Trabajo *")
+            nom_emp   = st.text_input("Razón Social *")
+            nit       = st.text_input("NIT")
+            direccion = st.text_input("Dirección")
+        with c2:
+            sede    = st.text_input("Ciudad de Ejecución *")
+            tel     = st.text_input("Teléfono")
+            fecha   = st.date_input("Fecha de Actividad")
+            resp_e  = st.text_input("Responsable (empresa)")
+        st.subheader("👷 Datos del Higienista")
+        c3, c4 = st.columns(2)
+        with c3: resp_h = st.text_input("Nombre del Higienista")
+        with c4: resol  = st.text_input("N° Resolución Licencia SST")
+        ok = st.form_submit_button("✅ Crear Proyecto", use_container_width=True)
+
+    if ok:
+        if num_orden and nom_emp and sede:
+            pnombre = f"{nom_emp} - {sede} ({fecha.strftime('%Y-%m-%d')})"
+            if pnombre in st.session_state.proyectos:
+                st.error("❌ Ya existe un proyecto con ese nombre")
+            else:
+                st.session_state.proyectos[pnombre] = {
                     "general": {
-                        "numero_orden": numero_orden,
-                        "nombre_empresa": nombre_empresa,
-                        "sede": sede,
-                        "fecha": fecha.strftime('%d/%m/%Y'),
+                        "numero_orden": num_orden, "nombre_empresa": nom_emp,
+                        "nit": nit, "direccion": direccion, "sede": sede,
+                        "telefono": tel, "fecha": fecha.strftime('%d/%m/%Y'),
+                        "mes_anio": fecha.strftime('%B de %Y').capitalize(),
+                        "responsable_empresa": resp_e,
+                        "responsable_higienista": resp_h,
+                        "resolucion": resol,
                         "tipo_area": list(RETILAP_REFERENCIA.keys())[0],
                     },
                     "planos": {}
                 }
                 guardar_proyectos(st.session_state.proyectos)
-                st.session_state.proyecto_actual = proyecto_nombre
-                st.session_state.pagina = "editar_proyecto"
-                st.success("✅ Proyecto creado exitosamente")
-                st.rerun()
-            else:
-                st.error("❌ Este proyecto ya existe")
+                st.session_state.proyecto_actual = pnombre
+                st.session_state.pagina = "editar_proyecto"; st.rerun()
         else:
-            st.error("❌ Por favor completa todos los campos")
+            st.error("❌ Completa los campos obligatorios (*)")
 
+
+# ============================================================================
+# PÁGINA: EDITAR PROYECTO
+# ============================================================================
 
 def pagina_editar_proyecto():
-    """Página para editar un proyecto y sus planos"""
-    proyecto_actual = st.session_state.proyecto_actual
-    proyecto_data = st.session_state.proyectos[proyecto_actual]
-    general = proyecto_data["general"]
-    
-    if "sede" not in general:
-        general["sede"] = ""
-    if "fecha" not in general:
-        general["fecha"] = ""
-    if "tipo_area" not in general:
-        general["tipo_area"] = list(RETILAP_REFERENCIA.keys())[0]
-    
-    st.title(f"✏️ Editando: {proyecto_actual}")
-    
-    if st.button("← Volver", key="btn_volver_editar"):
-        st.session_state.pagina = "inicio"
-        st.rerun()
-    
-    st.subheader("📋 Información del Proyecto")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.write(f"**Orden:** {general.get('numero_orden', 'N/A')}")
-        st.write(f"**Empresa:** {general.get('nombre_empresa', 'N/A')}")
-    with col2:
-        st.write(f"**Sede:** {general.get('sede', 'N/A')}")
-        st.write(f"**Fecha:** {general.get('fecha', 'N/A')}")
-    
-    st.divider()
-    
-    st.subheader("📐 Planos")
-    
-    st.write("**Agregar nuevo plano:**")
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        plano_nombre = st.text_input("Nombre del plano", key="input_plano_nombre")
-    
-    with col2:
-        uploaded_plano = st.file_uploader("Seleccionar archivo (JPG o PDF)", type=["jpg", "jpeg", "pdf"], key="upload_plano")
-    
-    if plano_nombre and uploaded_plano:
-        if plano_nombre not in proyecto_data["planos"]:
-            if st.button("✅ Agregar Plano", key="btn_agregar_plano"):
-                try:
-                    if uploaded_plano.type == "application/pdf":
-                        images = convert_from_bytes(uploaded_plano.read())
-                        img = images[0]
-                    else:
-                        img = Image.open(uploaded_plano)
-                    
-                    if img.mode != 'RGB':
-                        img = img.convert('RGB')
+    pnombre = st.session_state.proyecto_actual
+    pdata   = st.session_state.proyectos[pnombre]
+    g       = pdata["general"]
+    for k in ["nit","direccion","telefono","responsable_empresa",
+              "responsable_higienista","resolucion","sede","fecha"]:
+        g.setdefault(k, "")
 
-                    # Redimensionar si es muy grande
-                    MAX_WIDTH = 1920
-                    if img.width > MAX_WIDTH:
-                        ratio = MAX_WIDTH / img.width
-                        img = img.resize((MAX_WIDTH, int(img.height * ratio)), Image.LANCZOS)
-                    
-                    proyecto_data["planos"][plano_nombre] = {
-                        "img": img,
-                        "puntos": [],
-                        "data": [],
-                        "fotos": {}
-                    }
+    st.markdown(
+        f'<div class="main-header"><span style="font-size:2rem">✏️</span>'
+        f'<div><h1>{g.get("nombre_empresa","Proyecto")}</h1>'
+        f'<p>{g.get("sede","")} · {g.get("fecha","")}</p></div></div>',
+        unsafe_allow_html=True)
+
+    cv, ce = st.columns([1,1])
+    with cv:
+        if st.button("← Volver", key="volver_ep"):
+            st.session_state.pagina = "inicio"; st.rerun()
+    with ce:
+        if st.button("⚙️ Editar datos del proyecto", key="toggle_edit"):
+            st.session_state["_show_edit"] = not st.session_state.get("_show_edit", False)
+            st.rerun()
+
+    # Formulario de edición
+    if st.session_state.get("_show_edit", False):
+        with st.expander("📝 Editar información del proyecto", expanded=True):
+            with st.form("form_edit_gral"):
+                c1, c2 = st.columns(2)
+                with c1:
+                    v_or = st.text_input("N° Orden",     value=g.get("numero_orden",""))
+                    v_em = st.text_input("Razón Social", value=g.get("nombre_empresa",""))
+                    v_ni = st.text_input("NIT",          value=g.get("nit",""))
+                    v_di = st.text_input("Dirección",    value=g.get("direccion",""))
+                with c2:
+                    v_se = st.text_input("Ciudad",       value=g.get("sede",""))
+                    v_te = st.text_input("Teléfono",     value=g.get("telefono",""))
+                    v_re = st.text_input("Responsable empresa",
+                                         value=g.get("responsable_empresa",""))
+                c3, c4 = st.columns(2)
+                with c3: v_hi = st.text_input("Higienista",     value=g.get("responsable_higienista",""))
+                with c4: v_rs = st.text_input("N° Resolución SST", value=g.get("resolucion",""))
+                if st.form_submit_button("💾 Guardar cambios", use_container_width=True):
+                    g.update({"numero_orden":v_or,"nombre_empresa":v_em,"nit":v_ni,
+                              "direccion":v_di,"sede":v_se,"telefono":v_te,
+                              "responsable_empresa":v_re,"responsable_higienista":v_hi,
+                              "resolucion":v_rs})
                     guardar_proyectos(st.session_state.proyectos)
-                    st.success(f"✅ Plano '{plano_nombre}' agregado correctamente")
-                    st.session_state.plano_agregado = True
-                except Exception as e:
-                    st.error(f"❌ Error al cargar plano: {str(e)}")
-        else:
-            st.warning(f"⚠️ El plano '{plano_nombre}' ya existe")
-    
-    st.divider()
-    
-    if proyecto_data["planos"]:
-        st.write("**Planos disponibles:**")
-        
-        for plano_nombre in proyecto_data["planos"].keys():
-            col1, col2 = st.columns([3, 1])
-            
-            with col1:
-                st.write(f"📄 {plano_nombre}")
-            
-            with col2:
-                if st.button("📍 Editar", key=f"btn_editar_plano_{plano_nombre}"):
-                    st.session_state.plano_actual = plano_nombre
-                    st.session_state.pagina = "editar_plano"
-                    st.rerun()
-    else:
-        st.info("ℹ️ Agrega un plano para comenzar a marcar puntos")
+                    st.session_state["_show_edit"] = False
+                    st.success("✅ Datos actualizados"); st.rerun()
 
+    st.divider()
+    st.subheader("📐 Planos")
+
+    with st.expander("➕ Agregar plano", expanded=not bool(pdata["planos"])):
+        c1, c2 = st.columns([2,2])
+        with c1: plano_nombre = st.text_input("Nombre del plano", key="inp_pnombre")
+        with c2: up_plano     = st.file_uploader("Archivo JPG o PDF",
+                                                  type=["jpg","jpeg","pdf"], key="up_plano")
+        if plano_nombre and up_plano:
+            if st.button("✅ Agregar", key="btn_add_plano"):
+                if plano_nombre in pdata["planos"]:
+                    st.warning("⚠️ Ese plano ya existe")
+                else:
+                    try:
+                        img = (convert_from_bytes(up_plano.read())[0]
+                               if up_plano.type == "application/pdf"
+                               else Image.open(up_plano))
+                        if img.mode != 'RGB': img = img.convert('RGB')
+                        if img.width > 1920:
+                            r = 1920/img.width
+                            img = img.resize((1920, int(img.height*r)), Image.LANCZOS)
+                        pdata["planos"][plano_nombre] = {
+                            "img": img, "puntos": [], "data": [], "fotos": {}}
+                        guardar_proyectos(st.session_state.proyectos)
+                        st.success(f"✅ Plano '{plano_nombre}' agregado"); st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error: {e}")
+
+    if pdata["planos"]:
+        for pln, pi in list(pdata["planos"].items()):
+            n_pts  = len(pi.get("data",[]))
+            n_conf = sum(1 for d in pi.get("data",[]) if "✅" in str(d.get("Resultado","")))
+            c1, c2, c3 = st.columns([3,1,1])
+            with c1:
+                res = f"  ({n_conf} conformes)" if n_pts else ""
+                st.write(f"📄 **{pln}** — {n_pts} punto{'s' if n_pts!=1 else ''}{res}")
+            with c2:
+                if st.button("📍 Editar puntos", key=f"ep_{pln}"):
+                    st.session_state.plano_actual = pln
+                    st.session_state.pagina = "editar_plano"; st.rerun()
+            with c3:
+                if st.button("🗑️ Eliminar", key=f"delp_{pln}"):
+                    del pdata["planos"][pln]
+                    guardar_proyectos(st.session_state.proyectos); st.rerun()
+    else:
+        st.info("ℹ️ Agrega un plano para comenzar")
+
+
+# ============================================================================
+# PÁGINA: EDITAR PLANO
+# ============================================================================
 
 def pagina_editar_plano():
-    """Página para editar puntos en un plano"""
-    # Validación defensiva
     if "plano_actual" not in st.session_state:
-        st.session_state.pagina = "inicio"
-        st.rerun()
+        st.session_state.pagina = "inicio"; st.rerun()
 
-    proyecto_actual = st.session_state.proyecto_actual
-    plano_actual = st.session_state.plano_actual
-    
-    proyecto_data = st.session_state.proyectos[proyecto_actual]
-    plano_data = proyecto_data["planos"][plano_actual]
-    general = proyecto_data["general"]
-    plano_img = plano_data.get("img")
-    
-    st.title(f"📍 Editar Plano: {plano_actual}")
-    
-    if st.button("← Volver", key="btn_volver_plano"):
-        st.session_state.pagina = "editar_proyecto"
-        st.rerun()
-    
+    pnombre   = st.session_state.proyecto_actual
+    pl_nombre = st.session_state.plano_actual
+    pdata     = st.session_state.proyectos[pnombre]
+    pl_data   = pdata["planos"][pl_nombre]
+    g         = pdata["general"]
+    plano_img = pl_data.get("img")
+
+    st.markdown(
+        f'<div class="main-header"><span style="font-size:2rem">📍</span>'
+        f'<div><h1>{pl_nombre}</h1>'
+        f'<p>{g.get("nombre_empresa","")} · {g.get("sede","")}</p></div></div>',
+        unsafe_allow_html=True)
+
+    if st.button("← Volver al proyecto", key="volver_pl"):
+        st.session_state.pagina = "editar_proyecto"; st.rerun()
+
     if plano_img is None:
-        st.error(f"⚠️ La imagen del plano no se pudo cargar. Por favor, vuelve a subir el plano.")
+        st.error("⚠️ La imagen no pudo cargarse. Sube el plano nuevamente.")
         return
-    
-    st.image(plano_img, caption=f"Plano: {plano_actual} - Haz clic para marcar puntos", use_container_width=True)
+
+    # Plano con puntos anotados (círculos pequeños)
+    img_mostrar = dibujar_puntos(plano_img, pl_data["data"]) if pl_data["data"] else plano_img
+    st.image(img_mostrar, caption="Haz clic sobre el plano para agregar un punto",
+             use_container_width=True)
 
     clicked = streamlit_image_coordinates(
         plano_img,
-        key=f"clicker_{proyecto_actual}_{plano_actual}",
+        key=f"clicker_{pnombre}_{pl_nombre}",
         height=plano_img.height,
         width=plano_img.width,
     )
-    
     if clicked is not None:
-        # Normalizar coordenadas como porcentaje de la imagen original (0.0 - 1.0)
         xn = clicked["x"] / plano_img.width
         yn = clicked["y"] / plano_img.height
-        if not any(abs(px - xn) < 0.01 and abs(py - yn) < 0.01 for px, py in plano_data["puntos"]):
-            plano_data["puntos"].append((xn, yn))
-            guardar_proyectos(st.session_state.proyectos)
-            st.rerun()
-    
-    st.write(f"**Puntos en este plano:** {len(plano_data['puntos'])}")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("🗑️ Eliminar último punto", key=f"eliminar_ultimo_{proyecto_actual}_{plano_actual}"):
-            if plano_data["puntos"]:
-                ultimo_num = len(plano_data["puntos"])
-                plano_data["puntos"].pop()
-                plano_data["data"] = [d for d in plano_data["data"] if d["Número"] != ultimo_num]
-                guardar_proyectos(st.session_state.proyectos)
-                st.rerun()
-    with col2:
-        if st.button("🧹 Limpiar todos los puntos", key=f"limpiar_puntos_{proyecto_actual}_{plano_actual}"):
-            plano_data["puntos"] = []
-            plano_data["data"] = []
-            guardar_proyectos(st.session_state.proyectos)
-            st.rerun()
-    
+        if not any(abs(px-xn)<0.01 and abs(py-yn)<0.01
+                   for px, py in pl_data["puntos"]):
+            pl_data["puntos"].append((xn, yn))
+            guardar_proyectos(st.session_state.proyectos); st.rerun()
+
+    cm1, cm2, cm3 = st.columns(3)
+    with cm1: st.metric("Puntos marcados", len(pl_data["puntos"]))
+    with cm2:
+        if st.button("🗑️ Eliminar último", key=f"del_ul_{pl_nombre}"):
+            if pl_data["puntos"]:
+                n = len(pl_data["puntos"])
+                pl_data["puntos"].pop()
+                pl_data["data"] = [d for d in pl_data["data"] if d["Número"] != n]
+                guardar_proyectos(st.session_state.proyectos); st.rerun()
+    with cm3:
+        if st.button("🧹 Limpiar todos", key=f"limpiar_{pl_nombre}"):
+            pl_data["puntos"] = []; pl_data["data"] = []
+            guardar_proyectos(st.session_state.proyectos); st.rerun()
+
     st.divider()
-    
-    if plano_data["puntos"]:
-        st.subheader("📊 Mediciones por punto")
-        
-        for i, (xn, yn) in enumerate(plano_data["puntos"]):
-            # Reconvertir coordenadas normalizadas a píxeles reales
-            x = xn * plano_img.width if xn <= 1.0 else xn
-            y = yn * plano_img.height if yn <= 1.0 else yn
-            # Cargar valores existentes para que no se pierdan en reruns
-            existing = next((d for d in plano_data["data"] if d["Número"] == i + 1), {})
 
-            with st.expander(f"Punto {i+1} ({int(x)}, {int(y)})", expanded=False):
+    if not pl_data["puntos"]:
+        st.info("Haz clic sobre el plano para marcar el primer punto.")
+        return
 
-                # Botón eliminar este punto específico
-                if st.button(f"🗑️ Eliminar punto {i+1}", key=f"del_punto_{proyecto_actual}_{plano_actual}_{i}"):
-                    plano_data["puntos"].pop(i)
-                    # Eliminar de data y renumerar
-                    plano_data["data"] = [d for d in plano_data["data"] if d["Número"] != i + 1]
-                    for d in plano_data["data"]:
-                        if d["Número"] > i + 1:
-                            d["Número"] -= 1
+    st.subheader("📊 Mediciones por punto")
+    TIPOS = list(RETILAP_REFERENCIA.keys())
+    ILUM  = ["Natural","Artificial","Mixta"]
+    LAMP  = ["LED","Fluorescente","Incandescente","Halógeno","Otro"]
+    UBIC  = ["Localizado","Lateral","Frontal","Trasera","Cenital"]
+
+    for i, (xn, yn) in enumerate(pl_data["puntos"]):
+        x  = int(xn * plano_img.width)
+        y  = int(yn * plano_img.height)
+        ex = next((d for d in pl_data["data"] if d["Número"] == i+1), {})
+        r_actual = ex.get("Resultado","")
+        icono = "✅" if "✅" in r_actual else ("❌" if "❌" in r_actual else "⏳")
+
+        with st.expander(f"{icono} Punto {i+1}  ·  ({x}, {y})", expanded=False):
+
+            if st.button(f"🗑️ Eliminar punto {i+1}",
+                         key=f"delpt_{pnombre}_{pl_nombre}_{i}"):
+                pl_data["puntos"].pop(i)
+                pl_data["data"] = [d for d in pl_data["data"] if d["Número"] != i+1]
+                for d in pl_data["data"]:
+                    if d["Número"] > i+1: d["Número"] -= 1
+                guardar_proyectos(st.session_state.proyectos); st.rerun()
+
+            # Tipo de área
+            ta_g = ex.get("TipoArea", TIPOS[0])
+            tipo_area = st.selectbox("🏷️ Tipo de área RETILAP", TIPOS,
+                index=TIPOS.index(ta_g) if ta_g in TIPOS else 0,
+                key=f"ta_{pnombre}_{pl_nombre}_{i}")
+            em_req = RETILAP_REFERENCIA[tipo_area]["Em"]
+            uo_min = RETILAP_REFERENCIA[tipo_area]["Uo"]
+            st.markdown(f'<div class="em-box">⚡ Em requerida: <strong>{em_req} lx</strong>'
+                        f'&nbsp;·&nbsp; Uo mínima: <strong>{uo_min}</strong></div>',
+                        unsafe_allow_html=True)
+
+            # Mediciones
+            c1, c2, c3, c4 = st.columns(4)
+            with c1: med1=st.number_input("Med 1 (lx)",min_value=0.0,step=1.0,
+                value=float(ex.get("Med1",0)),key=f"m1_{pnombre}_{pl_nombre}_{i}")
+            with c2: med2=st.number_input("Med 2 (lx)",min_value=0.0,step=1.0,
+                value=float(ex.get("Med2",0)),key=f"m2_{pnombre}_{pl_nombre}_{i}")
+            with c3: med3=st.number_input("Med 3 (lx)",min_value=0.0,step=1.0,
+                value=float(ex.get("Med3",0)),key=f"m3_{pnombre}_{pl_nombre}_{i}")
+            with c4: med4=st.number_input("Med 4 (lx)",min_value=0.0,step=1.0,
+                value=float(ex.get("Med4",0)),key=f"m4_{pnombre}_{pl_nombre}_{i}")
+
+            ca, cb, cc = st.columns(3)
+            with ca:
+                ti_v = ex.get("TipoIluminacion","Artificial")
+                tipo_ilum = st.selectbox("Tipo iluminación", ILUM,
+                    index=ILUM.index(ti_v) if ti_v in ILUM else 1,
+                    key=f"ilum_{pnombre}_{pl_nombre}_{i}")
+            with cb:
+                tl_v = ex.get("TipoLampara","LED")
+                tipo_lamp = st.selectbox("Tipo lámpara", LAMP,
+                    index=LAMP.index(tl_v) if tl_v in LAMP else 0,
+                    key=f"lamp_{pnombre}_{pl_nombre}_{i}")
+            with cc:
+                ul_v = ex.get("UbicacionLuminaria","Localizado")
+                ubic_lum = st.selectbox("Ubicación luminaria", UBIC,
+                    index=UBIC.index(ul_v) if ul_v in UBIC else 0,
+                    key=f"ubic_{pnombre}_{pl_nombre}_{i}")
+
+            # Foto del punto
+            st.markdown("**📷 Foto del punto**")
+            foto_bytes = cargar_foto_punto(pl_data, i+1)
+            cf1, cf2 = st.columns([1,2])
+            with cf1:
+                if foto_bytes:
+                    st.image(foto_bytes, caption=f"Foto {i+1}", width=140)
+            with cf2:
+                foto_up = st.file_uploader("Subir / cambiar foto",
+                    type=["jpg","jpeg","png"],
+                    key=f"foto_{pnombre}_{pl_nombre}_{i}")
+                if foto_up:
+                    pl_data["fotos"][i+1] = foto_up.read()
                     guardar_proyectos(st.session_state.proyectos)
-                    st.rerun()
+                    st.success("✅ Foto guardada"); st.rerun()
 
-                # Tipo de área individual por punto
-                tipos_area_list = list(RETILAP_REFERENCIA.keys())
-                tipo_area_guardado = existing.get("TipoArea", general.get("tipo_area", tipos_area_list[0]))
-                tipo_area_idx = tipos_area_list.index(tipo_area_guardado) if tipo_area_guardado in tipos_area_list else 0
+            nota  = st.text_area("Observaciones", height=60,
+                value=ex.get("Nota",""), key=f"nota_{pnombre}_{pl_nombre}_{i}")
+            recom = st.text_area("Recomendaciones", height=60,
+                value=ex.get("Recomendacion",""), key=f"recom_{pnombre}_{pl_nombre}_{i}")
 
-                tipo_area_punto = st.selectbox(
-                    "🏷️ Tipo de área según RETILAP",
-                    tipos_area_list,
-                    index=tipo_area_idx,
-                    key=f"tipo_area_{proyecto_actual}_{plano_actual}_{i}"
-                )
-                valores_punto = RETILAP_REFERENCIA[tipo_area_punto]
-                em_sugerido = valores_punto["Em"]
-                uo_min = valores_punto["Uo"]
-                st.info(f"Em requerida: **{em_sugerido} lx** · Uo mínima: **{uo_min}**")
+            if all(v > 0 for v in [med1, med2, med3, med4]):
+                promedio  = (med1+med2+med3+med4)/4
+                conforme  = promedio >= em_req
+                resultado = "✅ Conforme" if conforme else "❌ No conforme"
+                color_res = "green" if conforme else "red"
+                if conforme:
+                    st.success(f"Promedio: **{round(promedio,1)} lx** → {resultado}")
+                else:
+                    st.error(f"Promedio: **{round(promedio,1)} lx** → {resultado} "
+                             f"(requiere ≥ {em_req} lx)")
 
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    med1 = st.number_input("Med 1 (lx)", min_value=0.0, step=0.1,
-                                           value=float(existing.get("Med1", 0.0)),
-                                           key=f"m1_{proyecto_actual}_{plano_actual}_{i}")
-                with col2:
-                    med2 = st.number_input("Med 2 (lx)", min_value=0.0, step=0.1,
-                                           value=float(existing.get("Med2", 0.0)),
-                                           key=f"m2_{proyecto_actual}_{plano_actual}_{i}")
-                with col3:
-                    med3 = st.number_input("Med 3 (lx)", min_value=0.0, step=0.1,
-                                           value=float(existing.get("Med3", 0.0)),
-                                           key=f"m3_{proyecto_actual}_{plano_actual}_{i}")
-                with col4:
-                    med4 = st.number_input("Med 4 (lx)", min_value=0.0, step=0.1,
-                                           value=float(existing.get("Med4", 0.0)),
-                                           key=f"m4_{proyecto_actual}_{plano_actual}_{i}")
+                entrada = {
+                    "Número": i+1, "Coordenadas": f"({xn:.6f}, {yn:.6f})",
+                    "TipoArea": tipo_area, "Em_req": em_req, "Uo_min": uo_min,
+                    "Med1": med1,"Med2": med2,"Med3": med3,"Med4": med4,
+                    "Promedio": round(promedio,1), "Resultado": resultado,
+                    "Color": color_res, "TipoIluminacion": tipo_ilum,
+                    "TipoLampara": tipo_lamp, "UbicacionLuminaria": ubic_lum,
+                    "Nota": nota.strip(), "Recomendacion": recom.strip(),
+                    "Foto": foto_bytes is not None
+                }
+                idx_ex = next((j for j,d in enumerate(pl_data["data"])
+                               if d["Número"]==i+1), None)
+                if idx_ex is not None: pl_data["data"][idx_ex] = entrada
+                else:                  pl_data["data"].append(entrada)
+                guardar_proyectos(st.session_state.proyectos)
 
-                foto_subida = st.file_uploader(f"Foto del punto {i+1} (opcional)", type=["jpg", "jpeg", "png"], key=f"foto_{proyecto_actual}_{plano_actual}_{i}")
-                if foto_subida is not None:
-                    plano_data["fotos"][i+1] = foto_subida.read()
-                    guardar_proyectos(st.session_state.proyectos)
-
-                nota = st.text_area("Notas / observaciones", height=80,
-                                    value=existing.get("Nota", ""),
-                                    key=f"nota_{proyecto_actual}_{plano_actual}_{i}")
-
-                if all(v > 0 for v in [med1, med2, med3, med4]):
-                    promedio = (med1 + med2 + med3 + med4) / 4
-                    conforme = promedio >= em_sugerido
-                    color = "green" if conforme else "red"
-                    resultado = "✅ Conforme" if conforme else "❌ No conforme"
-
-                    if conforme:
-                        st.success(f"Promedio: **{round(promedio, 1)} lx** → {resultado}")
-                    else:
-                        st.error(f"Promedio: **{round(promedio, 1)} lx** → {resultado} (requiere ≥ {em_sugerido} lx)")
-
-                    entrada = {
-                        "Número": i + 1,
-                        "Coordenadas": f"({xn:.6f}, {yn:.6f})",
-                        "TipoArea": tipo_area_punto,
-                        "Em_req": em_sugerido,
-                        "Uo_min": uo_min,
-                        "Med1": med1,
-                        "Med2": med2,
-                        "Med3": med3,
-                        "Med4": med4,
-                        "Promedio": round(promedio, 1),
-                        "Resultado": resultado,
-                        "Color": color,
-                        "Nota": nota.strip(),
-                        "Foto": foto_subida is not None
-                    }
-
-                    idx_existing = next((j for j, d in enumerate(plano_data["data"]) if d["Número"] == i + 1), None)
-                    if idx_existing is not None:
-                        plano_data["data"][idx_existing] = entrada
-                    else:
-                        plano_data["data"].append(entrada)
-
-                    guardar_proyectos(st.session_state.proyectos)
-        
-        st.divider()
-        
-        if plano_data["data"]:
-            st.subheader("🗺️ Mapa de puntos")
-            df_plano = pd.DataFrame(plano_data["data"])
-            draw_img = plano_img.copy()
-            draw = ImageDraw.Draw(draw_img)
-            radio = max(18, min(30, draw_img.width // 60))
-            font_size = max(14, min(22, radio - 4))
-            try:
-                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
-            except Exception:
-                font = ImageFont.load_default()
-
-            for _, r in df_plano.iterrows():
-                raw = r["Coordenadas"].strip("()").split(", ")
-                cx, cy = float(raw[0]), float(raw[1])
-                x = int(cx * draw_img.width) if cx <= 1.0 else int(cx)
-                y = int(cy * draw_img.height) if cy <= 1.0 else int(cy)
-                color = r["Color"]
-                draw.ellipse((x - radio, y - radio, x + radio, y + radio), fill=color)
-
-                texto = str(r["Número"])
-                bbox = font.getbbox(texto)
-                tw = bbox[2] - bbox[0]
-                th = bbox[3] - bbox[1]
-                tx = x - tw // 2
-                ty = y - th // 2 - 1
-                for dx, dy in [(-1,-1),(1,-1),(-1,1),(1,1)]:
-                    draw.text((tx+dx, ty+dy), texto, fill="black", font=font)
-                draw.text((tx, ty), texto, fill="white", font=font)
-            
-            st.image(draw_img, caption=f"Mapa - {plano_actual}", use_container_width=True)
-            
-            st.subheader("📊 Tabla de Resultados")
-            cols_mostrar = ["Número", "Coordenadas", "TipoArea", "Em_req", "Med1", "Med2", "Med3", "Med4", "Promedio", "Resultado"]
-            cols_existentes = [c for c in cols_mostrar if c in df_plano.columns]
-            st.dataframe(df_plano[cols_existentes].rename(columns={
-                "TipoArea": "Tipo de Área",
-                "Em_req": "Em req. (lx)"
-            }), use_container_width=True)
+    st.divider()
+    if pl_data["data"]:
+        st.subheader("📊 Tabla de Resultados")
+        df   = pd.DataFrame(pl_data["data"])
+        cols = ["Número","TipoArea","Em_req","Med1","Med2","Med3","Med4","Promedio","Resultado"]
+        cex  = [c for c in cols if c in df.columns]
+        st.dataframe(df[cex].rename(columns={
+            "TipoArea":"Tipo de Área","Em_req":"Em req.(lx)"}),
+            use_container_width=True)
 
 
 # ============================================================================
-# FUNCIÓN PRINCIPAL
+# MAIN
 # ============================================================================
 
 def main():
-    """Función principal de la aplicación"""
-    st.set_page_config(page_title="Auditoría Iluminación RETILAP", layout="wide")
-    
+    st.set_page_config(
+        page_title="LuxOMeter PRO · RETILAP",
+        page_icon="💡",
+        layout="wide",
+        initial_sidebar_state="collapsed"
+    )
+    aplicar_estilos()
     inicializar_session_state()
-    
-    if st.session_state.pagina == "inicio":
-        pagina_inicio()
-    elif st.session_state.pagina == "nuevo_proyecto":
-        pagina_nuevo_proyecto()
-    elif st.session_state.pagina == "editar_proyecto":
-        pagina_editar_proyecto()
-    elif st.session_state.pagina == "editar_plano":
-        pagina_editar_plano()
+
+    pagina = st.session_state.pagina
+    if   pagina == "inicio":          pagina_inicio()
+    elif pagina == "nuevo_proyecto":  pagina_nuevo_proyecto()
+    elif pagina == "editar_proyecto": pagina_editar_proyecto()
+    elif pagina == "editar_plano":    pagina_editar_plano()
 
 
 if __name__ == "__main__":
