@@ -4,3 +4,6 @@ Pillow
 pdf2image
 streamlit-image-coordinates
 reportlab
+python-docx
+matplotlib
+openpyxl
