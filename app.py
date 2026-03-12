@@ -9,6 +9,7 @@ from generar_word import generar_informe_word
 from streamlit_image_coordinates import streamlit_image_coordinates
 import io
 from datetime import datetime
+import anthropic
 
 # ============================================================================
 # CONFIGURACIÓN Y CONSTANTES
@@ -26,39 +27,135 @@ def get_proyectos_file():
     os.makedirs(PROYECTOS_DIR, exist_ok=True)
     return os.path.join(PROYECTOS_DIR, f"proyectos_{get_device_id()}.json")
 
+# ============================================================================
+# ÁREAS RETILAP 2024 — tomadas del archivo oficial Excel
+# Formato: "Categoría – Actividad": {"Em": lx, "Uo": valor}
+# ============================================================================
+
 RETILAP_REFERENCIA = {
-    "Oficinas - Escritura y lectura detallada": {"Em": 500, "Uo": 0.60},
-    "Oficinas - Trabajo administrativo general": {"Em": 300, "Uo": 0.40},
-    "Oficinas - Recepción y áreas de espera": {"Em": 200, "Uo": 0.40},
-    "Educación - Aulas y laboratorios": {"Em": 500, "Uo": 0.60},
-    "Educación - Bibliotecas y salas de lectura": {"Em": 500, "Uo": 0.60},
-    "Educación - Pasillos y escaleras": {"Em": 100, "Uo": 0.40},
-    "Comercio - Ventas y exhibición general": {"Em": 300, "Uo": 0.40},
-    "Comercio - Cajas y áreas de pago": {"Em": 500, "Uo": 0.60},
-    "Salud - Consultorios y habitaciones pacientes": {"Em": 300, "Uo": 0.60},
-    "Salud - Quirófanos y salas de cirugía": {"Em": 1000, "Uo": 0.70},
-    "Salud - Pasillos hospitales": {"Em": 100, "Uo": 0.40},
-    "Industria - Tareas de precisión alta": {"Em": 1500, "Uo": 0.70},
-    "Industria - Montaje e inspección fina": {"Em": 750, "Uo": 0.60},
-    "Industria - Trabajo ordinario": {"Em": 300, "Uo": 0.40},
-    "Almacenes y depósitos": {"Em": 200, "Uo": 0.40},
-    "Restaurantes y cafeterías - Áreas de mesas": {"Em": 200, "Uo": 0.40},
-    "Restaurantes - Cocinas": {"Em": 500, "Uo": 0.60},
-    "Hoteles - Habitaciones": {"Em": 200, "Uo": 0.40},
-    "Hoteles - Pasillos y escaleras": {"Em": 100, "Uo": 0.40},
-    "Vías M1 - Alta velocidad / tránsito pesado": {"Em": 50, "Uo": 0.40},
-    "Vías M2 - Velocidad media / tránsito mixto": {"Em": 30, "Uo": 0.35},
-    "Vías M3 - Velocidad moderada / zonas urbanas": {"Em": 20, "Uo": 0.35},
-    "Vías M4 - Zonas residenciales / colectoras": {"Em": 10, "Uo": 0.30},
-    "Vías M5 - Peatonal / ciclorrutas principales": {"Em": 7.5, "Uo": 0.25},
-    "Vías M6 - Peatonal secundaria / andenes": {"Em": 5, "Uo": 0.20},
-    "Estacionamientos exteriores": {"Em": 30, "Uo": 0.30},
-    "Parques y plazas públicas": {"Em": 2, "Uo": 0.20},
-    "Áreas deportivas - Fútbol / canchas grandes": {"Em": 100, "Uo": 0.40},
-    "Áreas deportivas - Tenis / básquet": {"Em": 200, "Uo": 0.50},
-    "Estaciones de servicio": {"Em": 50, "Uo": 0.40},
-    "Túneles - Zona de acceso (noche)": {"Em": 30, "Uo": 0.40},
-    "Túneles - Zona interior": {"Em": 5, "Uo": 0.40},
+    # Imprentas
+    "Imprentas – Corte, estampado, grabado, máquinas de impresión": {"Em": 500, "Uo": 0.6},
+    "Imprentas – Clasificación de papel e impresión a mano": {"Em": 500, "Uo": 0.6},
+    # Oficinas
+    "Oficinas – Escritura, mecanografía, lectura, procesamiento de datos": {"Em": 500, "Uo": 0.6},
+    "Oficinas – Oficinas de tipo general, mecanografía y computación": {"Em": 300, "Uo": 0.19},
+    "Oficinas – Oficinas abiertas": {"Em": 500, "Uo": 0.19},
+    "Oficinas – Oficinas de dibujo": {"Em": 500, "Uo": 0.16},
+    "Oficinas – Salas de conferencia": {"Em": 300, "Uo": 0.19},
+    # Procesos químicos
+    "Procesos químicos – Procesos automáticos": {"Em": 50, "Uo": 0.0},
+    "Procesos químicos – Intervención ocasional": {"Em": 100, "Uo": 0.28},
+    "Procesos químicos – Áreas generales en interior de fábricas": {"Em": 200, "Uo": 0.25},
+    "Procesos químicos – Cuartos de control, laboratorios": {"Em": 300, "Uo": 0.19},
+    "Procesos químicos – Industria farmacéutica": {"Em": 300, "Uo": 0.22},
+    "Procesos químicos – Inspección": {"Em": 500, "Uo": 0.19},
+    "Procesos químicos – Balanceo de colores": {"Em": 750, "Uo": 0.16},
+    "Procesos químicos – Fabricación de llantas de caucho": {"Em": 300, "Uo": 0.22},
+    # Confecciones
+    "Confecciones – Costura": {"Em": 500, "Uo": 0.22},
+    "Confecciones – Inspección": {"Em": 750, "Uo": 0.16},
+    "Confecciones – Prensado": {"Em": 300, "Uo": 0.22},
+    # Industria eléctrica
+    "Industria eléctrica – Fabricación de cables": {"Em": 200, "Uo": 0.25},
+    "Industria eléctrica – Ensamble de aparatos telefónicos": {"Em": 300, "Uo": 0.19},
+    "Industria eléctrica – Ensamble de devanados": {"Em": 500, "Uo": 0.19},
+    "Industria eléctrica – Ensamble aparatos de radio y TV": {"Em": 750, "Uo": 0.19},
+    "Industria eléctrica – Ensamble componentes electrónicos ultra precisión": {"Em": 1000, "Uo": 0.16},
+    # Industria alimenticia
+    "Industria alimenticia – Áreas generales de trabajo": {"Em": 200, "Uo": 0.25},
+    "Industria alimenticia – Procesos automáticos": {"Em": 150, "Uo": 0.0},
+    "Industria alimenticia – Decoración manual, inspección": {"Em": 300, "Uo": 0.16},
+    # Fundición
+    "Fundición – Pozos de fundición": {"Em": 150, "Uo": 0.25},
+    "Fundición – Moldeado basto, elaboración de machos": {"Em": 200, "Uo": 0.25},
+    "Fundición – Moldeo fino, inspección": {"Em": 300, "Uo": 0.22},
+    # Vidrio y cerámica
+    "Vidrio y cerámica – Zona de hornos": {"Em": 100, "Uo": 0.25},
+    "Vidrio y cerámica – Mezcla, moldeo, conformado y estufas": {"Em": 200, "Uo": 0.25},
+    "Vidrio y cerámica – Terminado, esmaltado, envidriado": {"Em": 300, "Uo": 0.19},
+    "Vidrio y cerámica – Pintura y decoración": {"Em": 500, "Uo": 0.16},
+    "Vidrio y cerámica – Afilado, lentes y cristalería, trabajo fino": {"Em": 750, "Uo": 0.19},
+    # Hierro y acero
+    "Hierro y acero – Sin intervención manual": {"Em": 50, "Uo": 0.0},
+    "Hierro y acero – Intervención ocasional": {"Em": 100, "Uo": 0.28},
+    "Hierro y acero – Puestos permanentes en plantas de producción": {"Em": 200, "Uo": 0.25},
+    "Hierro y acero – Plataformas de control e inspección": {"Em": 300, "Uo": 0.22},
+    # Industria del cuero
+    "Industria del cuero – Áreas generales de trabajo": {"Em": 200, "Uo": 0.25},
+    "Industria del cuero – Prensado, corte, costura, producción de calzado": {"Em": 500, "Uo": 0.22},
+    "Industria del cuero – Clasificación, adaptación y control de calidad": {"Em": 750, "Uo": 0.19},
+    # Taller mecánica
+    "Taller mecánica – Trabajo ocasional": {"Em": 150, "Uo": 0.25},
+    "Taller mecánica – Trabajo basto en banca y maquinado, soldadura": {"Em": 200, "Uo": 0.22},
+    "Taller mecánica – Maquinado y trabajo de media precisión": {"Em": 300, "Uo": 0.22},
+    "Taller mecánica – Maquinado fino, inspección y ensayos": {"Em": 500, "Uo": 0.19},
+    "Taller mecánica – Trabajo muy fino, calibración partes pequeñas": {"Em": 1000, "Uo": 0.09},
+    # Pintura
+    "Pintura – Inmersión, rociado basto": {"Em": 200, "Uo": 0.25},
+    "Pintura – Pintura ordinaria, rociado y terminado": {"Em": 300, "Uo": 0.22},
+    "Pintura – Pintura fina, rociado y terminado": {"Em": 500, "Uo": 0.19},
+    "Pintura – Retoque y balanceo de colores": {"Em": 750, "Uo": 0.16},
+    # Papel
+    "Fábricas de papel – Elaboración de papel y cartón": {"Em": 200, "Uo": 0.25},
+    "Fábricas de papel – Procesos automáticos": {"Em": 150, "Uo": 0.0},
+    "Fábricas de papel – Inspección y clasificación": {"Em": 300, "Uo": 0.22},
+    # Impresión y encuadernación
+    "Impresión – Recintos con máquinas de impresión": {"Em": 300, "Uo": 0.19},
+    "Impresión – Cuartos de composición y lecturas de prueba": {"Em": 500, "Uo": 0.19},
+    "Impresión – Pruebas de precisión, retoque y grabado": {"Em": 750, "Uo": 0.16},
+    "Impresión – Reproducción del color e impresión": {"Em": 1000, "Uo": 0.19},
+    "Impresión – Grabado con acero y cobre": {"Em": 1500, "Uo": 0.16},
+    "Impresión – Encuadernación": {"Em": 300, "Uo": 0.22},
+    "Impresión – Decoración y estampado": {"Em": 500, "Uo": 0.19},
+    # Textil
+    "Industria textil – Rompimiento de paca, cardado, hilado": {"Em": 200, "Uo": 0.25},
+    "Industria textil – Giro, embobinado, peinado, tintura": {"Em": 300, "Uo": 0.22},
+    "Industria textil – Balanceo, rotación, entretejido, tejido": {"Em": 500, "Uo": 0.22},
+    "Industria textil – Costura, desmonte e inspección": {"Em": 750, "Uo": 0.19},
+    # Madera y muebles
+    "Madera y muebles – Aserraderos": {"Em": 150, "Uo": 0.25},
+    "Madera y muebles – Trabajo en banco y montaje": {"Em": 200, "Uo": 0.25},
+    "Madera y muebles – Maquinado de madera": {"Em": 300, "Uo": 0.19},
+    "Madera y muebles – Terminado e inspección final": {"Em": 500, "Uo": 0.19},
+    # Salas (hospitales)
+    "Salas hospitalarias – Iluminación general": {"Em": 50, "Uo": 0.22},
+    "Salas hospitalarias – Examen": {"Em": 200, "Uo": 0.19},
+    "Salas hospitalarias – Lectura": {"Em": 150, "Uo": 0.16},
+    "Salas hospitalarias – Circulación nocturna": {"Em": 3, "Uo": 0.22},
+    # Salas de examen
+    "Salas de examen – Iluminación general": {"Em": 300, "Uo": 0.19},
+    "Salas de examen – Inspección local": {"Em": 750, "Uo": 0.19},
+    # Terapia intensiva
+    "Terapia intensiva – Cabecera de la cama": {"Em": 30, "Uo": 0.19},
+    "Terapia intensiva – Observación": {"Em": 200, "Uo": 0.19},
+    "Terapia intensiva – Estación de enfermería": {"Em": 200, "Uo": 0.19},
+    # Salas de operación
+    "Salas de operación – Iluminación general": {"Em": 500, "Uo": 0.19},
+    "Salas de operación – Iluminación local": {"Em": 10000, "Uo": 0.19},
+    # Autopsia
+    "Salas de autopsia – Iluminación general": {"Em": 500, "Uo": 0.19},
+    "Salas de autopsia – Iluminación local": {"Em": 5000, "Uo": 0.0},
+    # Consultorios
+    "Consultorios – Iluminación general": {"Em": 300, "Uo": 0.19},
+    "Consultorios – Iluminación local": {"Em": 500, "Uo": 0.19},
+    # Farmacia y laboratorios
+    "Farmacia y laboratorios – Iluminación general": {"Em": 300, "Uo": 0.19},
+    "Farmacia y laboratorios – Iluminación local": {"Em": 500, "Uo": 0.19},
+    # Comercio
+    "Comercio – Grandes centros comerciales": {"Em": 500, "Uo": 0.19},
+    "Comercio – Locales en cualquier parte": {"Em": 300, "Uo": 0.22},
+    "Comercio – Supermercados": {"Em": 500, "Uo": 0.19},
+    # Educación
+    "Educación – Salones de clase (iluminación general)": {"Em": 300, "Uo": 0.19},
+    "Educación – Tableros": {"Em": 300, "Uo": 0.19},
+    "Educación – Elaboración de planos": {"Em": 500, "Uo": 0.16},
+    "Educación – Salas de conferencias (iluminación general)": {"Em": 300, "Uo": 0.22},
+    "Educación – Tableros en salas de conferencias": {"Em": 500, "Uo": 0.19},
+    "Educación – Bancos de demostración": {"Em": 500, "Uo": 0.19},
+    "Educación – Laboratorios": {"Em": 300, "Uo": 0.19},
+    "Educación – Salas de arte": {"Em": 300, "Uo": 0.19},
+    "Educación – Talleres": {"Em": 300, "Uo": 0.19},
+    "Educación – Salas de asamblea": {"Em": 150, "Uo": 0.22},
 }
 
 # ============================================================================
@@ -70,42 +167,77 @@ def aplicar_estilos():
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-
     .main-header {
         background: linear-gradient(135deg, #1a569a 0%, #0d3461 100%);
-        color: white;
-        padding: 1.1rem 1.4rem;
-        border-radius: 12px;
-        margin-bottom: 1.2rem;
-        display: flex;
-        align-items: center;
-        gap: 14px;
+        color: white; padding: 1.1rem 1.4rem; border-radius: 12px;
+        margin-bottom: 1.2rem; display: flex; align-items: center; gap: 14px;
         box-shadow: 0 4px 16px rgba(26,86,154,0.25);
     }
     .main-header h1 { margin: 0; font-size: 1.4rem; font-weight: 700; }
     .main-header p  { margin: 0; font-size: 0.82rem; opacity: 0.75; }
-
-    .badge-ok  { background:#d1fae5; color:#065f46; border-radius:20px;
-                 padding:2px 10px; font-size:0.78rem; font-weight:600; }
-    .badge-err { background:#fee2e2; color:#991b1b; border-radius:20px;
-                 padding:2px 10px; font-size:0.78rem; font-weight:600; }
-    .badge-nd  { background:#f1f5f9; color:#475569; border-radius:20px;
-                 padding:2px 10px; font-size:0.78rem; font-weight:600; }
-
-    .em-box {
-        background: linear-gradient(90deg,#eff6ff,#f0f9ff);
-        border: 1px solid #bfdbfe;
-        border-radius: 8px;
-        padding: 0.45rem 1rem;
-        margin: 0.3rem 0 0.7rem;
-        font-size: 0.86rem;
-        color: #1e40af;
-    }
-
+    .badge-ok  { background:#d1fae5; color:#065f46; border-radius:20px; padding:2px 10px; font-size:0.78rem; font-weight:600; }
+    .badge-err { background:#fee2e2; color:#991b1b; border-radius:20px; padding:2px 10px; font-size:0.78rem; font-weight:600; }
+    .badge-nd  { background:#f1f5f9; color:#475569; border-radius:20px; padding:2px 10px; font-size:0.78rem; font-weight:600; }
+    .em-box { background:linear-gradient(90deg,#eff6ff,#f0f9ff); border:1px solid #bfdbfe;
+              border-radius:8px; padding:0.45rem 1rem; margin:0.3rem 0 0.7rem;
+              font-size:0.86rem; color:#1e40af; }
+    .recomendacion-box { background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px;
+                         padding:0.8rem 1rem; margin-top:0.5rem; font-size:0.87rem; color:#14532d; }
     div[data-testid="stButton"] > button { border-radius: 8px; font-weight: 500; }
     #MainMenu, footer { visibility: hidden; }
     </style>
     """, unsafe_allow_html=True)
+
+
+# ============================================================================
+# IA — GENERAR RECOMENDACIONES
+# ============================================================================
+
+def generar_recomendaciones_ia(puntos_data):
+    """
+    Recibe lista de dicts con info de los puntos.
+    Retorna texto con recomendaciones generadas por Claude.
+    """
+    try:
+        client = anthropic.Anthropic()
+
+        # Construir resumen de puntos para el prompt
+        resumen = []
+        for p in puntos_data:
+            estado = "CONFORME" if "✅" in str(p.get("Resultado","")) else "DEFICIENTE"
+            resumen.append(
+                f"- Punto {p['Número']} ({p.get('TipoArea','')}):"
+                f" Promedio={p.get('Promedio',0)} lx,"
+                f" Em requerida={p.get('Em_req',0)} lx,"
+                f" Tipo iluminación={p.get('TipoIluminacion','')},"
+                f" Lámpara={p.get('TipoLampara','')},"
+                f" Observación: {p.get('Nota','Sin observación')}."
+                f" Estado: {estado}."
+            )
+
+        prompt = f"""Eres un experto en higiene y seguridad industrial especializado en iluminación según la norma RETILAP 2024 de Colombia.
+
+Analiza los siguientes puntos de medición de iluminancia y genera recomendaciones técnicas:
+
+{chr(10).join(resumen)}
+
+Instrucciones:
+- Si varios puntos tienen el mismo problema o condiciones similares, agrupa la recomendación en una sola recomendación general.
+- Si hay puntos con problemas diferentes, genera una recomendación específica para cada caso.
+- Sé concreto y técnico: menciona acciones como "aumentar densidad de luminarias", "reemplazar lámparas por LED de mayor flujo luminoso", "instalar luminarias localizadas", etc.
+- Si hay puntos conformes, menciona brevemente que se deben mantener las condiciones.
+- Usa lenguaje técnico pero claro. Máximo 250 palabras.
+- Responde SOLO con las recomendaciones, sin introducción ni conclusión."""
+
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=500,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return message.content[0].text
+
+    except Exception as e:
+        return f"⚠️ No se pudo generar la recomendación automática: {e}"
 
 
 # ============================================================================
@@ -180,20 +312,14 @@ def cargar_foto_punto(plano_info, num):
 
 
 # ============================================================================
-# HELPER: dibujar puntos proporcionales al plano
+# HELPER: dibujar puntos proporcionales
 # ============================================================================
 
 def dibujar_puntos(img, data_rows):
-    """
-    Círculos proporcionales al tamaño real del plano:
-    radio = 1.2% del lado menor, entre 10 y 22 px.
-    Así en planos grandes los círculos no quedan enormes.
-    """
     draw_img = img.copy()
     if not data_rows:
         return draw_img
-
-    draw = ImageDraw.Draw(draw_img)
+    draw  = ImageDraw.Draw(draw_img)
     lado  = min(draw_img.width, draw_img.height)
     radio = max(10, min(22, int(lado * 0.012)))
     fsize = max(9,  min(16, radio - 1))
@@ -202,7 +328,6 @@ def dibujar_puntos(img, data_rows):
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", fsize)
     except:
         font = ImageFont.load_default()
-
     for row in data_rows:
         try:
             raw = str(row["Coordenadas"]).strip("()").split(", ")
@@ -222,6 +347,61 @@ def dibujar_puntos(img, data_rows):
         except:
             pass
     return draw_img
+
+
+# ============================================================================
+# GRÁFICA DE CONFORMIDAD — solo % adecuados vs deficientes
+# ============================================================================
+
+def grafica_conformidad(data_rows, titulo=""):
+    """Genera gráfica de torta simple: % conformes vs deficientes."""
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+
+        total     = len(data_rows)
+        conformes = sum(1 for r in data_rows if "✅" in str(r.get("Resultado","")))
+        deficientes = total - conformes
+
+        if total == 0:
+            return None
+
+        pct_conf = round(conformes / total * 100, 1)
+        pct_def  = round(deficientes / total * 100, 1)
+
+        fig, ax = plt.subplots(figsize=(4.5, 4.5), facecolor='#f8fafc')
+        ax.set_facecolor('#f8fafc')
+
+        valores = [pct_conf, pct_def] if deficientes > 0 else [100]
+        labels  = [f"Adecuados\n{pct_conf}%", f"Deficientes\n{pct_def}%"] if deficientes > 0 else [f"Adecuados\n100%"]
+        colores = ['#22c55e', '#ef4444'] if deficientes > 0 else ['#22c55e']
+        explotar= [0.04, 0.04] if deficientes > 0 else [0]
+
+        wedges, texts = ax.pie(
+            valores, labels=labels, colors=colores,
+            explode=explotar, startangle=90,
+            textprops={'fontsize': 11, 'fontweight': 'bold'},
+            wedgeprops={'linewidth': 2, 'edgecolor': 'white'}
+        )
+
+        ax.set_title(titulo or "Conformidad RETILAP",
+                     fontsize=12, fontweight='bold', color='#1a3a5c', pad=12)
+
+        # Texto central
+        ax.text(0, 0, f"{total}\npuntos",
+                ha='center', va='center',
+                fontsize=10, color='#475569', fontweight='bold')
+
+        buf = io.BytesIO()
+        plt.savefig(buf, format='PNG', bbox_inches='tight', dpi=130,
+                    facecolor='#f8fafc')
+        plt.close(fig)
+        buf.seek(0)
+        return buf.getvalue()
+    except Exception as e:
+        st.warning(f"No se pudo generar la gráfica: {e}")
+        return None
 
 
 # ============================================================================
@@ -279,7 +459,7 @@ def generar_reporte_pdf(proyecto_data, proyecto_nombre):
             HRFlowable(width="100%", thickness=2, color=colors.HexColor('#2c6fad')),
             Spacer(1, 0.2*inch),
         ]
-        info  = [
+        info = [
             ["Proyecto:", proyecto_nombre],
             ["Orden:", g.get("numero_orden","N/A")],
             ["Empresa:", g.get("nombre_empresa","N/A")],
@@ -302,6 +482,7 @@ def generar_reporte_pdf(proyecto_data, proyecto_nombre):
         ]))
         story.append(tI); story.append(Spacer(1, 0.25*inch))
 
+        # Resumen general
         tot = conf = 0
         for pi in proyecto_data["planos"].values():
             for r in pi.get("data",[]):
@@ -323,6 +504,15 @@ def generar_reporte_pdf(proyecto_data, proyecto_nombre):
                  colors.HexColor('#27ae60') if pct>=80 else colors.HexColor('#e74c3c')),
             ]))
             story.append(tR)
+
+            # Gráfica de conformidad en el PDF
+            grafica_bytes = grafica_conformidad(
+                [r for pi in proyecto_data["planos"].values() for r in pi.get("data",[])],
+                "Conformidad General")
+            if grafica_bytes:
+                story.append(Spacer(1, 0.2*inch))
+                story.append(RLImage(io.BytesIO(grafica_bytes), width=3.5*inch, height=3.5*inch))
+
         story.append(PageBreak())
 
         for pln, pi in proyecto_data["planos"].items():
@@ -416,10 +606,8 @@ def pagina_inicio():
     st.markdown("""
     <div class="main-header">
       <span style="font-size:2.2rem">💡</span>
-      <div>
-        <h1>LuxOMeter PRO</h1>
-        <p>Auditoría de Iluminación · Norma RETILAP 2024</p>
-      </div>
+      <div><h1>LuxOMeter PRO</h1>
+      <p>Auditoría de Iluminación · Norma RETILAP 2024</p></div>
     </div>""", unsafe_allow_html=True)
 
     c1, c2 = st.columns([3,1])
@@ -435,9 +623,10 @@ def pagina_inicio():
     for idx, (pnombre, pdata) in enumerate(st.session_state.proyectos.items()):
         g = pdata["general"]
         tot = conf = 0
+        all_data = []
         for pi in pdata["planos"].values():
             for d in pi.get("data",[]):
-                tot += 1
+                tot += 1; all_data.append(d)
                 if "✅" in str(d.get("Resultado","")): conf += 1
 
         with st.container(border=True):
@@ -452,6 +641,11 @@ def pagina_inicio():
                     icono = "✅" if pct>=80 else "⚠️"
                     st.markdown(f"<span class='badge-{badge}'>{icono} {conf}/{tot} "
                                 f"puntos conformes ({pct}%)</span>", unsafe_allow_html=True)
+
+                    # Gráfica de torta
+                    graf = grafica_conformidad(all_data)
+                    if graf:
+                        st.image(graf, width=220)
                 else:
                     st.markdown("<span class='badge-nd'>Sin mediciones</span>",
                                 unsafe_allow_html=True)
@@ -499,9 +693,9 @@ def pagina_inicio():
                                 if pi.get("img") and pi.get("data")
                             }
                             word_buf = generar_informe_word(g, todas_med, plano_imgs)
-                            fname    = (f"Informe_RETILAP_"
-                                        f"{g.get('nombre_empresa','').replace(' ','_')}"
-                                        f"_{datetime.now().strftime('%Y%m%d')}.docx")
+                            fname = (f"Informe_RETILAP_"
+                                     f"{g.get('nombre_empresa','').replace(' ','_')}"
+                                     f"_{datetime.now().strftime('%Y%m%d')}.docx")
                             st.download_button("⬇️ Descargar Word", data=word_buf,
                                 file_name=fname,
                                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -597,7 +791,6 @@ def pagina_editar_proyecto():
             st.session_state["_show_edit"] = not st.session_state.get("_show_edit", False)
             st.rerun()
 
-    # Formulario de edición
     if st.session_state.get("_show_edit", False):
         with st.expander("📝 Editar información del proyecto", expanded=True):
             with st.form("form_edit_gral"):
@@ -700,7 +893,6 @@ def pagina_editar_plano():
         st.error("⚠️ La imagen no pudo cargarse. Sube el plano nuevamente.")
         return
 
-    # Plano con puntos anotados (círculos pequeños)
     img_mostrar = dibujar_puntos(plano_img, pl_data["data"]) if pl_data["data"] else plano_img
     st.image(img_mostrar, caption="Haz clic sobre el plano para agregar un punto",
              use_container_width=True)
@@ -740,6 +932,7 @@ def pagina_editar_plano():
         return
 
     st.subheader("📊 Mediciones por punto")
+
     TIPOS = list(RETILAP_REFERENCIA.keys())
     ILUM  = ["Natural","Artificial","Mixta"]
     LAMP  = ["LED","Fluorescente","Incandescente","Halógeno","Otro"]
@@ -762,7 +955,6 @@ def pagina_editar_plano():
                     if d["Número"] > i+1: d["Número"] -= 1
                 guardar_proyectos(st.session_state.proyectos); st.rerun()
 
-            # Tipo de área
             ta_g = ex.get("TipoArea", TIPOS[0])
             tipo_area = st.selectbox("🏷️ Tipo de área RETILAP", TIPOS,
                 index=TIPOS.index(ta_g) if ta_g in TIPOS else 0,
@@ -773,7 +965,6 @@ def pagina_editar_plano():
                         f'&nbsp;·&nbsp; Uo mínima: <strong>{uo_min}</strong></div>',
                         unsafe_allow_html=True)
 
-            # Mediciones
             c1, c2, c3, c4 = st.columns(4)
             with c1: med1=st.number_input("Med 1 (lx)",min_value=0.0,step=1.0,
                 value=float(ex.get("Med1",0)),key=f"m1_{pnombre}_{pl_nombre}_{i}")
@@ -817,10 +1008,47 @@ def pagina_editar_plano():
                     guardar_proyectos(st.session_state.proyectos)
                     st.success("✅ Foto guardada"); st.rerun()
 
-            nota  = st.text_area("Observaciones", height=60,
+            nota = st.text_area("Observaciones", height=60,
                 value=ex.get("Nota",""), key=f"nota_{pnombre}_{pl_nombre}_{i}")
-            recom = st.text_area("Recomendaciones", height=60,
-                value=ex.get("Recomendacion",""), key=f"recom_{pnombre}_{pl_nombre}_{i}")
+
+            # Recomendación manual o IA
+            recom_guardada = ex.get("Recomendacion","")
+            recom = st.text_area("Recomendaciones", height=80,
+                value=recom_guardada,
+                key=f"recom_{pnombre}_{pl_nombre}_{i}",
+                help="Escribe tu recomendación o usa el botón IA para generarla automáticamente")
+
+            if st.button(f"🤖 Generar recomendación con IA",
+                         key=f"ia_recom_{pnombre}_{pl_nombre}_{i}"):
+                with st.spinner("Generando recomendación..."):
+                    # Solo este punto para recomendación individual
+                    punto_temp = ex.copy() if ex else {}
+                    punto_temp.update({
+                        "Número": i+1, "TipoArea": tipo_area,
+                        "Em_req": em_req, "Promedio": round((med1+med2+med3+med4)/4, 1) if all(v>0 for v in [med1,med2,med3,med4]) else ex.get("Promedio",0),
+                        "Resultado": ex.get("Resultado","Sin medición"),
+                        "TipoIluminacion": tipo_ilum, "TipoLampara": tipo_lamp,
+                        "Nota": nota
+                    })
+                    recom_ia = generar_recomendaciones_ia([punto_temp])
+                    st.session_state[f"recom_ia_{pnombre}_{pl_nombre}_{i}"] = recom_ia
+                    st.rerun()
+
+            # Mostrar recomendación IA generada
+            if f"recom_ia_{pnombre}_{pl_nombre}_{i}" in st.session_state:
+                recom_ia_texto = st.session_state[f"recom_ia_{pnombre}_{pl_nombre}_{i}"]
+                st.markdown(f'<div class="recomendacion-box">🤖 <strong>Recomendación IA:</strong><br>{recom_ia_texto}</div>',
+                            unsafe_allow_html=True)
+                if st.button("✅ Usar esta recomendación",
+                             key=f"usar_ia_{pnombre}_{pl_nombre}_{i}"):
+                    # Guardar en el dato del punto
+                    idx_ex = next((j for j,d in enumerate(pl_data["data"])
+                                   if d["Número"]==i+1), None)
+                    if idx_ex is not None:
+                        pl_data["data"][idx_ex]["Recomendacion"] = recom_ia_texto
+                    del st.session_state[f"recom_ia_{pnombre}_{pl_nombre}_{i}"]
+                    guardar_proyectos(st.session_state.proyectos)
+                    st.rerun()
 
             if all(v > 0 for v in [med1, med2, med3, med4]):
                 promedio  = (med1+med2+med3+med4)/4
@@ -849,9 +1077,33 @@ def pagina_editar_plano():
                 else:                  pl_data["data"].append(entrada)
                 guardar_proyectos(st.session_state.proyectos)
 
+    # ── Gráfica de conformidad del plano + botón IA general ──────────────────
     st.divider()
     if pl_data["data"]:
-        st.subheader("📊 Tabla de Resultados")
+        col_graf, col_ia = st.columns([1,1])
+
+        with col_graf:
+            st.subheader("📊 Conformidad del Plano")
+            graf = grafica_conformidad(pl_data["data"], pl_nombre)
+            if graf:
+                st.image(graf, width=300)
+
+        with col_ia:
+            st.subheader("🤖 Recomendaciones IA — Plano completo")
+            if st.button("🤖 Generar recomendaciones para todo el plano",
+                         key=f"ia_plano_{pnombre}_{pl_nombre}",
+                         use_container_width=True):
+                with st.spinner("Analizando todos los puntos con IA..."):
+                    recom_general = generar_recomendaciones_ia(pl_data["data"])
+                    st.session_state[f"recom_plano_{pnombre}_{pl_nombre}"] = recom_general
+                    st.rerun()
+
+            if f"recom_plano_{pnombre}_{pl_nombre}" in st.session_state:
+                texto = st.session_state[f"recom_plano_{pnombre}_{pl_nombre}"]
+                st.markdown(f'<div class="recomendacion-box">{texto}</div>',
+                            unsafe_allow_html=True)
+
+        st.subheader("📋 Tabla de Resultados")
         df   = pd.DataFrame(pl_data["data"])
         cols = ["Número","TipoArea","Em_req","Med1","Med2","Med3","Med4","Promedio","Resultado"]
         cex  = [c for c in cols if c in df.columns]
