@@ -200,7 +200,8 @@ def generar_recomendaciones_ia(puntos_data):
     """
     try:
         api_key = st.secrets.get("ANTHROPIC_API_KEY", os.environ.get("ANTHROPIC_API_KEY", ""))
-client = anthropic.Anthropic(api_key=api_key)
+        client = anthropic.Anthropic(api_key=api_key)
+
         # Construir resumen de puntos para el prompt
         resumen = []
         for p in puntos_data:
