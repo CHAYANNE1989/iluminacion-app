@@ -1,342 +1,175 @@
 """
-Generador de informe Word RETILAP
-Toma datos directamente de la app (sin Excel externo).
+generar_word.py  —  LuxOMeter PRO / RETILAP 2024
+Tabla de luxometría con la estructura exacta del formato RETILAP.
 """
-import io
-from datetime import datetime
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-import numpy as np
-from PIL import Image, ImageDraw, ImageFont
-import base64
 from docx import Document
 from docx.shared import Pt, Cm, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
+import io
+from datetime import datetime
 
-# ─── HELPERS ─────────────────────────────────────────────────────────────────
+AZ_OSC = RGBColor(0x1A,0x3A,0x5C)
+AZ_CLA = RGBColor(0xD6,0xE4,0xF0)
+VERDE  = RGBColor(0x27,0xAE,0x60)
+ROJO   = RGBColor(0xE7,0x4C,0x3C)
+BLANCO = RGBColor(0xFF,0xFF,0xFF)
+NEGRO  = RGBColor(0x00,0x00,0x00)
+GRIS   = RGBColor(0xF0,0xF4,0xF8)
 
-def _set_cell_bg(cell, hex_color):
-    tc = cell._tc
-    tcPr = tc.get_or_add_tcPr()
-    shd = OxmlElement('w:shd')
-    shd.set(qn('w:val'), 'clear')
-    shd.set(qn('w:color'), 'auto')
-    shd.set(qn('w:fill'), hex_color)
+def _bg(cell, color):
+    tc=cell._tc; tcPr=tc.get_or_add_tcPr()
+    shd=OxmlElement('w:shd')
+    hx=f"{color[0]:02X}{color[1]:02X}{color[2]:02X}"
+    shd.set(qn('w:val'),'clear'); shd.set(qn('w:color'),'auto'); shd.set(qn('w:fill'),hx)
     tcPr.append(shd)
 
-def _celda(cell, text, size=9, bold=False, align=WD_ALIGN_PARAGRAPH.CENTER, bg=None, color=None):
-    cell.text = ''
-    p = cell.paragraphs[0]
-    p.alignment = align
-    run = p.add_run(str(text))
-    run.bold = bold
-    run.font.size = Pt(size)
-    run.font.name = 'Arial'
-    if color:
-        run.font.color.rgb = RGBColor(*bytes.fromhex(color))
-    if bg:
-        _set_cell_bg(cell, bg)
+def _txt(cell, text, bold=False, sz=7, color=NEGRO,
+         align=WD_ALIGN_PARAGRAPH.CENTER, italic=False):
+    cell.vertical_alignment=WD_ALIGN_VERTICAL.CENTER
+    p=cell.paragraphs[0]; p.clear(); p.alignment=align
+    r=p.add_run(str(text) if text is not None else "")
+    r.bold=bold; r.italic=italic
+    r.font.size=Pt(sz); r.font.color.rgb=color
 
-def _bordes(table):
-    for row in table.rows:
-        for cell in row.cells:
-            tc = cell._tc
-            tcPr = tc.get_or_add_tcPr()
-            tcB = OxmlElement('w:tcBorders')
-            for side in ['top','left','bottom','right']:
-                b = OxmlElement(f'w:{side}')
-                b.set(qn('w:val'), 'single')
-                b.set(qn('w:sz'), '4')
-                b.set(qn('w:color'), 'AAAAAA')
-                tcB.append(b)
-            tcPr.append(tcB)
+def _borders(table):
+    tbl=table._tbl; tblPr=tbl.tblPr
+    b=OxmlElement('w:tblBorders')
+    for s in('top','left','bottom','right','insideH','insideV'):
+        e=OxmlElement(f'w:{s}')
+        e.set(qn('w:val'),'single'); e.set(qn('w:sz'),'4')
+        e.set(qn('w:space'),'0');    e.set(qn('w:color'),'AACCEE')
+        b.append(e)
+    tblPr.append(b)
 
-# ─── GRÁFICA ─────────────────────────────────────────────────────────────────
+def _img_buf(pil_img):
+    buf=io.BytesIO(); pil_img.save(buf,format="PNG"); buf.seek(0); return buf
 
-def generar_grafica(mediciones):
-    labels = []
-    for m in mediciones:
-        area = m.get('area', '')
-        labels.append(f"P{m['num']}\n{area[:12]}..." if len(area)>12 else f"P{m['num']}\n{area}")
+def generar_informe_word(general:dict, mediciones:list, plano_imgs:dict=None) -> bytes:
+    doc=Document()
+    sec=doc.sections[0]
+    sec.page_width=Cm(35.56); sec.page_height=Cm(21.59)
+    sec.left_margin=sec.right_margin=sec.top_margin=sec.bottom_margin=Cm(1.5)
 
-    promedios = [m['promedio'] or 0 for m in mediciones]
-    em_reqs   = [m['em_req'] or 0 for m in mediciones]
-    colores   = ['#27AE60' if 'Conforme' in m.get('resultado','') else '#E74C3C' for m in mediciones]
+    # Título
+    p=doc.add_paragraph(); p.alignment=WD_ALIGN_PARAGRAPH.CENTER
+    r=p.add_run("ESTUDIO DE LUXOMETRÍA")
+    r.bold=True; r.font.size=Pt(16); r.font.color.rgb=AZ_OSC
 
-    fig, ax = plt.subplots(figsize=(max(10, len(mediciones)*1.8), 5))
-    x = np.arange(len(labels))
-    w = 0.35
-
-    bars1 = ax.bar(x - w/2, promedios, w, color=colores, label='Promedio Medido (lx)', edgecolor='white')
-    bars2 = ax.bar(x + w/2, em_reqs,   w, color='#2C6FAD', alpha=0.7, label='Em Requerida (lx)', edgecolor='white')
-
-    for bar in bars1:
-        h = bar.get_height()
-        ax.annotate(f'{h:.0f}', xy=(bar.get_x()+bar.get_width()/2, h), xytext=(0,3),
-                    textcoords='offset points', ha='center', va='bottom', fontsize=7)
-    for bar in bars2:
-        h = bar.get_height()
-        ax.annotate(f'{h:.0f}', xy=(bar.get_x()+bar.get_width()/2, h), xytext=(0,3),
-                    textcoords='offset points', ha='center', va='bottom', fontsize=7)
-
-    ax.set_xlabel('Puntos de Medición', fontsize=10)
-    ax.set_ylabel('Iluminancia (lx)', fontsize=10)
-    ax.set_title('Niveles de Iluminancia Medidos vs Requeridos', fontsize=12, fontweight='bold')
-    ax.set_xticks(x); ax.set_xticklabels(labels, fontsize=7)
-    verde = mpatches.Patch(color='#27AE60', label='Adecuado')
-    rojo  = mpatches.Patch(color='#E74C3C', label='Deficiente')
-    azul  = mpatches.Patch(color='#2C6FAD', alpha=0.7, label='Em Requerida')
-    ax.legend(handles=[verde, rojo, azul], fontsize=8)
-    ax.grid(axis='y', alpha=0.3)
-    ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False)
-    buf = io.BytesIO()
-    plt.tight_layout()
-    plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
-    plt.close(); buf.seek(0)
-    return buf
-
-# ─── GENERADOR PRINCIPAL ──────────────────────────────────────────────────────
-
-def generar_informe_word(general, mediciones, plano_imgs=None):
-    """
-    general: dict con datos del proyecto (de st.session_state)
-    mediciones: lista de dicts con datos de cada punto
-    plano_imgs: dict {nombre: PIL.Image con puntos dibujados}
-    """
-    doc = Document()
-
-    # Márgenes
-    for section in doc.sections:
-        section.top_margin    = Cm(2)
-        section.bottom_margin = Cm(2)
-        section.left_margin   = Cm(2.5)
-        section.right_margin  = Cm(2.5)
-
-    doc.styles['Normal'].font.name = 'Arial'
-    doc.styles['Normal'].font.size = Pt(11)
-
-    # ── PORTADA ──────────────────────────────────────────────────────────────
+    p2=doc.add_paragraph(); p2.alignment=WD_ALIGN_PARAGRAPH.CENTER
+    r2=p2.add_run("Auditoría de Iluminación en el Lugar de Trabajo – Norma RETILAP 2024")
+    r2.font.size=Pt(9); r2.font.color.rgb=RGBColor(0x2C,0x6F,0xAD)
     doc.add_paragraph()
-    p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = p.add_run('INFORME DE EVALUACIONES OCUPACIONALES\nNIVELES DE ILUMINACIÓN')
-    run.bold = True; run.font.size = Pt(16)
-    run.font.color.rgb = RGBColor(0x1A, 0x56, 0x9A)
 
-    doc.add_paragraph()
-    p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.add_run('EMPRESA').bold = True
-
-    p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = p.add_run(general.get('nombre_empresa', ''))
-    run.bold = True; run.font.size = Pt(14)
-    run.font.color.rgb = RGBColor(0x1A, 0x56, 0x9A)
-
-    p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.add_run(f"NIT: {general.get('nit', '')}").font.size = Pt(12)
-
-    doc.add_paragraph()
-    p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.add_run('Elaborado Por').font.size = Pt(11)
-
-    p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = p.add_run(f"{general.get('responsable_higienista','')}  |  Licencia en SST Res. No. {general.get('resolucion','')}")
-    run.bold = True; run.font.size = Pt(11)
-
-    doc.add_paragraph()
-    p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.add_run(general.get('mes_anio', '')).font.size = Pt(12)
-
-    doc.add_page_break()
-
-    # ── DATOS DE LA EMPRESA ───────────────────────────────────────────────────
-    h = doc.add_heading('DATOS DE LA EMPRESA', level=1)
-    h.runs[0].font.color.rgb = RGBColor(0x1A, 0x56, 0x9A)
-
-    campos_emp = [
-        ('NIT',                              general.get('nit', '')),
-        ('RAZÓN SOCIAL',                     general.get('nombre_empresa', '')),
-        ('FECHA Y HORA DE ACTIVIDAD',        general.get('fecha', '')),
-        ('DIRECCIÓN',                        general.get('direccion', '')),
-        ('TELÉFONO',                         general.get('telefono', '')),
-        ('RESPONSABLE DE ATENDER LA ASESORÍA', general.get('responsable_empresa', '')),
-        ('CIUDAD DE EJECUCIÓN',              general.get('sede', '')),
-        ('ORDEN DE TRABAJO N°',              general.get('numero_orden', '')),
+    # Ficha empresa
+    ficha=doc.add_table(rows=3,cols=6); ficha.alignment=WD_TABLE_ALIGNMENT.CENTER; _borders(ficha)
+    fd=[
+        ["Empresa:",general.get("nombre_empresa",""),"NIT:",general.get("nit",""),"N° Orden:",general.get("numero_orden","")],
+        ["Dirección:",general.get("direccion",""),"Ciudad:",general.get("sede",""),"Fecha:",general.get("fecha","")],
+        ["Higienista:",general.get("responsable_higienista",""),"Lic. SST:",general.get("resolucion",""),"Responsable:",general.get("responsable_empresa","")],
     ]
-    t_emp = doc.add_table(rows=len(campos_emp), cols=2)
-    t_emp.style = 'Table Grid'
-    for i, (lbl, val) in enumerate(campos_emp):
-        _celda(t_emp.rows[i].cells[0], lbl, bold=True, align=WD_ALIGN_PARAGRAPH.LEFT, bg='D5E8F0')
-        _celda(t_emp.rows[i].cells[1], val, align=WD_ALIGN_PARAGRAPH.LEFT)
-    _bordes(t_emp)
+    cw_f=[2.2,5.5,2.2,5.5,2.2,5.5]
+    for ri,fila in enumerate(fd):
+        bg=GRIS if ri%2==0 else BLANCO
+        for ci,val in enumerate(fila):
+            cell=ficha.cell(ri,ci); cell.width=Cm(cw_f[ci])
+            _bg(cell,bg)
+            is_lbl=(ci%2==0)
+            _txt(cell,val,bold=is_lbl,sz=8,color=AZ_OSC if is_lbl else NEGRO,align=WD_ALIGN_PARAGRAPH.LEFT)
     doc.add_paragraph()
 
-    # ── INTRODUCCIÓN ─────────────────────────────────────────────────────────
+    # Resumen
+    tot=len(mediciones); conf=sum(1 for m in mediciones if "✅" in str(m.get("resultado",""))); defic=tot-conf
+    pct=round(conf/tot*100,1) if tot>0 else 0
+    rs=doc.add_table(rows=2,cols=4); rs.alignment=WD_TABLE_ALIGNMENT.CENTER; _borders(rs)
+    rh=["Total puntos","Adecuados","Deficientes","% Adecuados"]
+    rv=[str(tot),str(conf),str(defic),f"{pct}%"]
+    for ci,h in enumerate(rh):
+        cell=rs.cell(0,ci); cell.width=Cm(4); _bg(cell,AZ_OSC); _txt(cell,h,bold=True,color=BLANCO,sz=9)
+    for ci,v in enumerate(rv):
+        cell=rs.cell(1,ci); cell.width=Cm(4); _bg(cell,GRIS)
+        c=(VERDE if pct>=80 else ROJO) if ci==3 else NEGRO
+        _txt(cell,v,bold=(ci==3),color=c,sz=9)
     doc.add_page_break()
-    h = doc.add_heading('INTRODUCCIÓN', level=1)
-    h.runs[0].font.color.rgb = RGBColor(0x1A, 0x56, 0x9A)
-    intro = (
-        f"La iluminación industrial es uno de los factores ambientales primordiales que contribuye a la correcta "
-        f"y adecuada realización de las tareas, facilitando la visualización de las cosas dentro de su contexto "
-        f"espacial, de modo que el trabajo se pueda realizar en unas condiciones aceptables de comodidad, seguridad "
-        f"y eficacia. La empresa {general.get('nombre_empresa','')} ubicada en {general.get('sede','')} solicitó "
-        f"la evaluación de los niveles de iluminación en sus instalaciones, con el fin de verificar el cumplimiento "
-        f"de los requisitos establecidos en el Reglamento Técnico de Iluminación y Alumbrado Público – RETILAP – "
-        f"Resolución 40150 del 03 de mayo de 2024."
-    )
-    p = doc.add_paragraph(intro); p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
-    # ── TABLA DE RESULTADOS ───────────────────────────────────────────────────
-    doc.add_page_break()
-    h = doc.add_heading('RESULTADOS DE MEDICIÓN', level=1)
-    h.runs[0].font.color.rgb = RGBColor(0x1A, 0x56, 0x9A)
-    p = doc.add_paragraph('Tabla 2. NIVELES DE ILUMINANCIA Y UNIFORMIDAD OBTENIDOS')
-    p.runs[0].bold = True; p.runs[0].font.size = Pt(10)
-
-    hdrs = ['N°', 'Área / Puesto', 'Tipo Ilum.', 'Med1\n(lx)', 'Med2\n(lx)', 'Med3\n(lx)', 'Med4\n(lx)',
-            'Prom.\n(lx)', 'Em Req.\n(lx)', 'Resultado']
-    anch = [0.8, 3.5, 2, 1.3, 1.3, 1.3, 1.3, 1.4, 1.4, 2.2]
-
-    t_res = doc.add_table(rows=1+len(mediciones), cols=len(hdrs))
-    t_res.style = 'Table Grid'
-    for j, (h_txt, a) in enumerate(zip(hdrs, anch)):
-        c = t_res.rows[0].cells[j]
-        c.width = Cm(a)
-        _celda(c, h_txt, bold=True, color='FFFFFF', bg='1A569A', size=8)
-
-    for i, m in enumerate(mediciones):
-        row = t_res.rows[i+1]
-        es_def = 'Conforme' not in m.get('resultado', '')
-        bg_r = 'FDDEDE' if es_def else 'D5F5E3'
-        vals = [
-            str(m['num']),
-            m.get('area', ''),
-            m.get('tipo_iluminacion', ''),
-            str(m.get('med1', '')),
-            str(m.get('med2', '')),
-            str(m.get('med3', '')),
-            str(m.get('med4', '')),
-            str(m.get('promedio', '')),
-            str(m.get('em_req', '')),
-            '✓ ADECUADO' if not es_def else '✗ DEFICIENTE',
-        ]
-        bgs = [None]*9 + [bg_r]
-        for j, (v, bg) in enumerate(zip(vals, bgs)):
-            _celda(row.cells[j], v, size=8, bg=bg)
-    _bordes(t_res)
-    doc.add_paragraph()
-
-    # ── DETALLE POR PUNTO ─────────────────────────────────────────────────────
-    h = doc.add_heading('DETALLE POR PUNTO DE MEDICIÓN', level=2)
-    h.runs[0].font.color.rgb = RGBColor(0x1A, 0x56, 0x9A)
-
-    for m in mediciones:
-        p = doc.add_paragraph()
-        p.add_run(f"Punto {m['num']} – {m.get('area', '')}").bold = True
-
-        t_obs = doc.add_table(rows=3, cols=2)
-        t_obs.style = 'Table Grid'
-        obs_data = [
-            ('Tipo de Iluminación', m.get('tipo_iluminacion', '')),
-            ('Tipo de Lámpara',     m.get('tipo_lampara', '')),
-            ('Ubicación Luminaria', m.get('ubicacion_luminaria', '')),
-        ]
-        for k, (lbl, val) in enumerate(obs_data):
-            _celda(t_obs.rows[k].cells[0], lbl, bold=True, align=WD_ALIGN_PARAGRAPH.LEFT, bg='EBF5FB', size=8)
-            _celda(t_obs.rows[k].cells[1], val, align=WD_ALIGN_PARAGRAPH.LEFT, size=8)
-        _bordes(t_obs)
-
-        if m.get('nota'):
-            p2 = doc.add_paragraph()
-            p2.add_run('Observaciones: ').bold = True
-            p2.add_run(m['nota'])
-            p2.runs[0].font.size = Pt(9)
-        if m.get('recomendacion'):
-            p3 = doc.add_paragraph()
-            p3.add_run('Recomendaciones: ').bold = True
-            p3.add_run(m['recomendacion'])
-            p3.runs[0].font.size = Pt(9)
+    # Planos
+    for pln_nombre,pln_img in (plano_imgs or {}).items():
+        p_t=doc.add_paragraph(); rt=p_t.add_run(f"Plano: {pln_nombre}")
+        rt.bold=True; rt.font.size=Pt(11); rt.font.color.rgb=AZ_OSC
+        if pln_img:
+            try: doc.add_picture(_img_buf(pln_img),width=Cm(32))
+            except Exception as e: doc.add_paragraph(f"(Error imagen: {e})")
         doc.add_paragraph()
 
-    # ── GRÁFICA ───────────────────────────────────────────────────────────────
-    if mediciones:
-        doc.add_page_break()
-        h = doc.add_heading('ANÁLISIS GRÁFICO DE RESULTADOS', level=1)
-        h.runs[0].font.color.rgb = RGBColor(0x1A, 0x56, 0x9A)
-        graf = generar_grafica(mediciones)
-        doc.add_picture(graf, width=Cm(16))
-        doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-    # ── RESUMEN CONFORMIDAD ───────────────────────────────────────────────────
-    doc.add_paragraph()
-    h = doc.add_heading('RESUMEN DE CONFORMIDAD', level=2)
-    h.runs[0].font.color.rgb = RGBColor(0x1A, 0x56, 0x9A)
-
-    total     = len(mediciones)
-    adecuados = sum(1 for m in mediciones if 'Conforme' in m.get('resultado',''))
-    defic     = total - adecuados
-    pct       = (adecuados/total*100) if total > 0 else 0
-
-    t_sum = doc.add_table(rows=4, cols=2)
-    t_sum.style = 'Table Grid'
-    sum_data = [
-        ('Total puntos evaluados', str(total)),
-        ('Puntos ADECUADOS',       f"{adecuados} ({pct:.1f}%)"),
-        ('Puntos DEFICIENTES',     f"{defic} ({100-pct:.1f}%)"),
-        ('Conformidad General',    'CONFORME' if pct >= 80 else 'NO CONFORME'),
+    # Tabla principal
+    HEADS=[
+        "N°\nMed","Puesto de trabajo\no Área evaluada","Ubicación",
+        "Descripción","Observaciones /\nRecomendaciones",
+        "Lux\n1","Lux\n2","Lux\n3","Lux\n4",
+        "E\nMIN\n(lx)","E\nMAX\n(lx)","E\nMEDIO\n(lx)",
+        "Promedio\nmedido\n(lx)","Valor\nUo","Interp.\nUo",
+        "Tipo de Área\nRETILAP","Em\nrec.\n(lx)",
+        "Interpretación\ndel Nivel de\nIluminancia",
     ]
-    bgs_s = ['EBF5FB','D5F5E3','FDDEDE','D5F5E3' if pct>=80 else 'FDDEDE']
-    for k, ((lbl, val), bg) in enumerate(zip(sum_data, bgs_s)):
-        _celda(t_sum.rows[k].cells[0], lbl, bold=True, align=WD_ALIGN_PARAGRAPH.LEFT, bg='D5E8F0', size=10)
-        _celda(t_sum.rows[k].cells[1], val, bold=True, size=10, bg=bg)
-    _bordes(t_sum)
+    CW=[0.9,3.0,1.8,2.2,3.2,1.0,1.0,1.0,1.0,1.1,1.1,1.1,1.3,1.1,1.1,2.8,1.1,2.0]
+    NC=len(HEADS)
 
-    # ── PLANOS CON PUNTOS ─────────────────────────────────────────────────────
-    if plano_imgs:
-        doc.add_page_break()
-        h = doc.add_heading('PLANOS CON PUNTOS DE MEDICIÓN', level=1)
-        h.runs[0].font.color.rgb = RGBColor(0x1A, 0x56, 0x9A)
-        for nombre_plano, img_pil in plano_imgs.items():
-            p = doc.add_paragraph(f'Plano: {nombre_plano}')
-            p.runs[0].bold = True
-            buf_img = io.BytesIO()
-            img_pil.save(buf_img, format='PNG'); buf_img.seek(0)
-            doc.add_picture(buf_img, width=Cm(16))
-            doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
-            doc.add_paragraph()
+    if mediciones:
+        tbl=doc.add_table(rows=1,cols=NC); tbl.alignment=WD_TABLE_ALIGNMENT.CENTER; _borders(tbl)
+        hr=tbl.rows[0]
+        for ci,(h,cw) in enumerate(zip(HEADS,CW)):
+            cell=hr.cells[ci]; cell.width=Cm(cw); _bg(cell,AZ_OSC)
+            _txt(cell,h,bold=True,color=BLANCO,sz=6.5)
 
-    # ── CONCLUSIONES ──────────────────────────────────────────────────────────
-    doc.add_page_break()
-    h = doc.add_heading('ANÁLISIS DE RESULTADOS Y CONCLUSIONES', level=1)
-    h.runs[0].font.color.rgb = RGBColor(0x1A, 0x56, 0x9A)
-    p = doc.add_paragraph('[Complete aquí las conclusiones del informe]')
-    p.runs[0].font.color.rgb = RGBColor(0x99,0x99,0x99)
-    p.runs[0].font.italic = True
+        for idx,m in enumerate(mediciones):
+            conf_m="✅" in str(m.get("resultado",""))
+            rbg=GRIS if idx%2==0 else BLANCO
+            m1=m.get("med1",0) or 0; m2=m.get("med2",0) or 0
+            m3=m.get("med3",0) or 0; m4=m.get("med4",0) or 0
+            vals=[v for v in[m1,m2,m3,m4] if v>0]
+            e_min  =m.get("e_min")  or (round(min(vals),1)         if vals else "")
+            e_max  =m.get("e_max")  or (round(max(vals),1)         if vals else "")
+            e_medio=m.get("e_medio")or (round(sum(vals)/len(vals),1) if vals else "")
+            desc=(f"Tipo Ilum.: {m.get('tipo_iluminacion','')}\n"
+                  f"Lámpara: {m.get('tipo_lampara','')}\n"
+                  f"Ubic.: {m.get('ubicacion_luminaria','')}\n"
+                  f"Ctrl. Luz Nat.: {m.get('control_luz_natural','')}\n"
+                  f"Altura (m): {m.get('altura_luminaria','')}")
+            obs=(f"Obs.: {m.get('nota','')}\n"
+                 f"Rec.: {m.get('recomendacion','')}")
+            vals_row=[
+                str(m.get("num","")),
+                str(m.get("area","")),
+                str(m.get("ubicacion_luminaria","")),
+                desc, obs,
+                str(m1) if m1 else "",str(m2) if m2 else "",
+                str(m3) if m3 else "",str(m4) if m4 else "",
+                str(e_min),str(e_max),str(e_medio),
+                str(m.get("promedio","")),
+                str(m.get("uo_calc","")),
+                str(m.get("interpretacion_uo","")),
+                str(m.get("area","")),
+                str(m.get("em_req","")),
+                "ADECUADO" if conf_m else "DEFICIENTE",
+            ]
+            dr=tbl.add_row()
+            for ci,(val,cw) in enumerate(zip(vals_row,CW)):
+                cell=dr.cells[ci]; cell.width=Cm(cw)
+                if ci==NC-1:  # Interpretación final
+                    _bg(cell,VERDE if conf_m else ROJO)
+                    _txt(cell,val,bold=True,color=BLANCO,sz=6.5)
+                else:
+                    _bg(cell,rbg)
+                    al=(WD_ALIGN_PARAGRAPH.LEFT
+                        if ci in(1,3,4,15) else WD_ALIGN_PARAGRAPH.CENTER)
+                    _txt(cell,val,sz=6.5,align=al)
 
+    # Pie
     doc.add_paragraph()
-    h = doc.add_heading('RECOMENDACIONES', level=1)
-    h.runs[0].font.color.rgb = RGBColor(0x1A, 0x56, 0x9A)
-    p = doc.add_paragraph('[Complete aquí las recomendaciones generales]')
-    p.runs[0].font.color.rgb = RGBColor(0x99,0x99,0x99)
-    p.runs[0].font.italic = True
+    pf=doc.add_paragraph(); pf.alignment=WD_ALIGN_PARAGRAPH.CENTER
+    rf=pf.add_run(f"RETILAP 2024  ·  Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    rf.font.size=Pt(7); rf.font.color.rgb=RGBColor(0x80,0x80,0x80)
 
-    # ── BIBLIOGRAFÍA ──────────────────────────────────────────────────────────
-    doc.add_page_break()
-    h = doc.add_heading('BIBLIOGRAFÍA', level=1)
-    h.runs[0].font.color.rgb = RGBColor(0x1A, 0x56, 0x9A)
-    for b in [
-        'Reglamento Técnico de Iluminación y Alumbrado Público – RETILAP. Ministerio de Minas y Energía, Colombia, 2010.',
-        'Resolución 40150 del 03 de mayo de 2024. Ministerio de Minas y Energía.',
-        'Guía Técnica Colombiana GTC-8: 1994. ICONTEC.',
-        'NTC GTC 8 de 1994. Principios de Ergonomía Visual.',
-    ]:
-        p = doc.add_paragraph(b, style='List Bullet')
-        p.runs[0].font.size = Pt(10)
-
-    buf = io.BytesIO()
-    doc.save(buf); buf.seek(0)
-    return buf
+    buf=io.BytesIO(); doc.save(buf); buf.seek(0); return buf.getvalue()
