@@ -392,10 +392,6 @@ def generar_reporte_pdf(proyecto_data,proyecto_nombre):
                 Paragraph("<b>Ubicación</b>",eCe),
                 Paragraph("<b>Descripción</b>",eCe),
                 Paragraph("",eCe),  # obs/recomendaciones
-                Paragraph("<b>Lux\n1</b>",eCe),
-                Paragraph("<b>Lux\n2</b>",eCe),
-                Paragraph("<b>Lux\n3</b>",eCe),
-                Paragraph("<b>Lux\n4</b>",eCe),
                 Paragraph("<b>E\nMIN\n(lx)</b>",eCe),
                 Paragraph("<b>E\nMAX\n(lx)</b>",eCe),
                 Paragraph("<b>E\nMEDIO\n(lx)</b>",eCe),
@@ -407,7 +403,6 @@ def generar_reporte_pdf(proyecto_data,proyecto_nombre):
                 Paragraph("<b>Interpretación\nNivel de\nIluminancia</b>",eCe),
             ]
             cw=[0.9*cm,3.0*cm,1.8*cm,2.0*cm,3.0*cm,
-                1.0*cm,1.0*cm,1.0*cm,1.0*cm,
                 1.1*cm,1.1*cm,1.1*cm,1.3*cm,
                 1.1*cm,1.1*cm,2.8*cm,1.1*cm,2.0*cm]
 
@@ -434,10 +429,6 @@ def generar_reporte_pdf(proyecto_data,proyecto_nombre):
                     Paragraph(str(r.get("PuestoEvaluado","")) or str(r.get("TipoArea","")),eIz),
                     Paragraph(str(r.get("UbicacionLuminaria","")),eCe),
                     desc, obs,
-                    Paragraph(str(m1) if m1 else "",eCe),
-                    Paragraph(str(m2) if m2 else "",eCe),
-                    Paragraph(str(m3) if m3 else "",eCe),
-                    Paragraph(str(m4) if m4 else "",eCe),
                     Paragraph(str(e_min),eCe),
                     Paragraph(str(e_max),eCe),
                     Paragraph(str(e_med),eCe),
@@ -461,13 +452,13 @@ def generar_reporte_pdf(proyecto_data,proyecto_nombre):
                 ('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2),
                 ('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),
                 ('ALIGN',(3,1),(4,-1),'LEFT'),('ALIGN',(1,1),(1,-1),'LEFT'),
-                ('ALIGN',(15,1),(15,-1),'LEFT'),
+                ('ALIGN',(11,1),(11,-1),'LEFT'),
             ]
             for idx,r in enumerate(drows,1):
                 c="✅" in str(r.get("Resultado",""))
-                ts+=[('BACKGROUND',(17,idx),(17,idx),VERDE if c else ROJO),
-                     ('TEXTCOLOR',(17,idx),(17,idx),BLANCO),
-                     ('FONTNAME',(17,idx),(17,idx),'Helvetica-Bold')]
+                ts+=[('BACKGROUND',(13,idx),(13,idx),VERDE if c else ROJO),
+                     ('TEXTCOLOR',(13,idx),(13,idx),BLANCO),
+                     ('FONTNAME',(13,idx),(13,idx),'Helvetica-Bold')]
             tab.setStyle(TableStyle(ts))
             story.append(tab)
             story+=[Spacer(1,0.1*inch),PageBreak()]
@@ -649,22 +640,33 @@ def pagina_editar_proyecto():
                     guardar_proyectos(st.session_state.proyectos)
                     st.session_state["_show_edit"]=False; st.success("✅ Actualizado"); st.rerun()
     st.divider(); st.subheader("📐 Planos")
-    with st.expander("➕ Agregar plano",expanded=not bool(pdata["planos"])):
+    with st.expander("➕ Agregar plano / área de medición",expanded=not bool(pdata["planos"])):
+        tipo_plano=st.radio("Tipo de área",["📎 Con plano (subir imagen/PDF)","📋 Sin plano (solo registro de puntos)"],
+                            key="tipo_plano_radio",horizontal=True)
         c1,c2=st.columns([2,2])
-        with c1: plano_nombre=st.text_input("Nombre del plano",key="inp_pnombre")
-        with c2: up_plano=st.file_uploader("Archivo JPG o PDF",type=["jpg","jpeg","pdf"],key="up_plano")
-        if plano_nombre and up_plano:
-            if st.button("✅ Agregar",key="btn_add_plano"):
-                if plano_nombre in pdata["planos"]: st.warning("⚠️ Ya existe")
-                else:
-                    try:
-                        img=(convert_from_bytes(up_plano.read())[0]
-                             if up_plano.type=="application/pdf" else Image.open(up_plano))
-                        if img.mode!='RGB': img=img.convert('RGB')
-                        if img.width>1920: r=1920/img.width; img=img.resize((1920,int(img.height*r)),Image.LANCZOS)
-                        pdata["planos"][plano_nombre]={"img":img,"puntos":[],"data":[],"fotos":{}}
+        with c1: plano_nombre=st.text_input("Nombre del área / plano",key="inp_pnombre")
+        if tipo_plano.startswith("📎"):
+            with c2: up_plano=st.file_uploader("Archivo JPG o PDF",type=["jpg","jpeg","pdf"],key="up_plano")
+            if plano_nombre and up_plano:
+                if st.button("✅ Agregar con plano",key="btn_add_plano"):
+                    if plano_nombre in pdata["planos"]: st.warning("⚠️ Ya existe")
+                    else:
+                        try:
+                            img=(convert_from_bytes(up_plano.read())[0]
+                                 if up_plano.type=="application/pdf" else Image.open(up_plano))
+                            if img.mode!="RGB": img=img.convert("RGB")
+                            if img.width>1920: r=1920/img.width; img=img.resize((1920,int(img.height*r)),Image.LANCZOS)
+                            pdata["planos"][plano_nombre]={"img":img,"puntos":[],"data":[],"fotos":{},"sin_plano":False}
+                            guardar_proyectos(st.session_state.proyectos); st.success(f"✅ '{plano_nombre}' agregado"); st.rerun()
+                        except Exception as e: st.error(f"❌ {e}")
+        else:
+            st.info("📋 Se crearán puntos de medición sin imagen de plano. Podrás ingresar las mediciones directamente.")
+            if plano_nombre:
+                if st.button("✅ Agregar sin plano",key="btn_add_sinplano"):
+                    if plano_nombre in pdata["planos"]: st.warning("⚠️ Ya existe")
+                    else:
+                        pdata["planos"][plano_nombre]={"img":None,"puntos":[],"data":[],"fotos":{},"sin_plano":True}
                         guardar_proyectos(st.session_state.proyectos); st.success(f"✅ '{plano_nombre}' agregado"); st.rerun()
-                    except Exception as e: st.error(f"❌ {e}")
     if pdata["planos"]:
         for pln,pi in list(pdata["planos"].items()):
             n_pts=len(pi.get("data",[])); n_conf=sum(1 for d in pi.get("data",[]) if "✅" in str(d.get("Resultado","")))
@@ -689,19 +691,21 @@ def pagina_editar_plano():
                 f'<div><h1>{pl_nombre}</h1><p>{g.get("nombre_empresa","")} · {g.get("sede","")}</p></div></div>',
                 unsafe_allow_html=True)
     if st.button("← Volver al proyecto",key="volver_pl"): st.session_state.pagina="editar_proyecto"; st.rerun()
-    if plano_img is None: st.error("⚠️ Imagen no disponible. Sube el plano nuevamente."); return
 
-    img_mostrar=dibujar_puntos(plano_img,pl_data["data"]) if pl_data["data"] else plano_img
-    st.image(img_mostrar,caption="Haz clic sobre el plano para agregar un punto",use_container_width=True)
-    clicked=streamlit_image_coordinates(plano_img,key=f"clicker_{pnombre}_{pl_nombre}",
-                                        height=plano_img.height,width=plano_img.width)
-    if clicked is not None:
-        xn=clicked["x"]/plano_img.width; yn=clicked["y"]/plano_img.height
-        if not any(abs(px-xn)<0.01 and abs(py-yn)<0.01 for px,py in pl_data["puntos"]):
-            pl_data["puntos"].append((xn,yn)); guardar_proyectos(st.session_state.proyectos); st.rerun()
+    sin_plano=pl_data.get("sin_plano",plano_img is None)
+
+    if not sin_plano and plano_img is not None:
+        img_mostrar=dibujar_puntos(plano_img,pl_data["data"]) if pl_data["data"] else plano_img
+        st.image(img_mostrar,caption="Haz clic sobre el plano para agregar un punto",use_container_width=True)
+        clicked=streamlit_image_coordinates(plano_img,key=f"clicker_{pnombre}_{pl_nombre}",
+                                            height=plano_img.height,width=plano_img.width)
+        if clicked is not None:
+            xn=clicked["x"]/plano_img.width; yn=clicked["y"]/plano_img.height
+            if not any(abs(px-xn)<0.01 and abs(py-yn)<0.01 for px,py in pl_data["puntos"]):
+                pl_data["puntos"].append((xn,yn)); guardar_proyectos(st.session_state.proyectos); st.rerun()
 
     cm1,cm2,cm3=st.columns(3)
-    with cm1: st.metric("Puntos marcados",len(pl_data["puntos"]))
+    with cm1: st.metric("Puntos registrados",len(pl_data["puntos"]))
     with cm2:
         if st.button("🗑️ Eliminar último",key=f"del_ul_{pl_nombre}"):
             if pl_data["puntos"]:
@@ -712,22 +716,37 @@ def pagina_editar_plano():
         if st.button("🧹 Limpiar todos",key=f"limpiar_{pl_nombre}"):
             pl_data["puntos"]=[]; pl_data["data"]=[]; guardar_proyectos(st.session_state.proyectos); st.rerun()
 
+    # Sin plano: botón para agregar puntos manualmente
+    if sin_plano:
+        st.info("📋 Área sin plano — agrega los puntos de medición manualmente.")
+        if st.button("➕ Agregar punto de medición",key=f"add_pt_manual_{pl_nombre}"):
+            n=len(pl_data["puntos"])
+            pl_data["puntos"].append((0.0, float(n)))
+            guardar_proyectos(st.session_state.proyectos); st.rerun()
+
     st.divider()
-    if not pl_data["puntos"]: st.info("Haz clic sobre el plano para marcar el primer punto."); return
+    if not pl_data["puntos"]:
+        if sin_plano: st.info("Pulsa '➕ Agregar punto de medición' para comenzar.")
+        else: st.info("Haz clic sobre el plano para marcar el primer punto.")
+        return
 
     st.subheader("📊 Mediciones por punto")
     TIPOS=list(RETILAP_REFERENCIA.keys())
     ILUM=["Natural","Artificial","Mixta"]
     LAMP=["LED","Fluorescente","Incandescente","Halógeno","Otro"]
-    UBIC=["Localizado","Lateral","Frontal","Trasera","Cenital"]
+    UBIC=["Localizado","Lateral","Frontal","Trasera","Cenital","SIA"]
 
     for i,(xn,yn) in enumerate(pl_data["puntos"]):
-        x=int(xn*plano_img.width); y=int(yn*plano_img.height)
+        if plano_img and not sin_plano:
+            x=int(xn*plano_img.width); y=int(yn*plano_img.height)
+            coord_txt=f"({x}, {y})"
+        else:
+            coord_txt=""
         ex=next((d for d in pl_data["data"] if d["Número"]==i+1),{})
         r_actual=ex.get("Resultado","")
         icono="✅" if "✅" in r_actual else("❌" if "❌" in r_actual else "⏳")
 
-        with st.expander(f"{icono} Punto {i+1}  ·  ({x}, {y})",expanded=False):
+        with st.expander(f"{icono} Punto {i+1}  {coord_txt}",expanded=False):
             if st.button(f"🗑️ Eliminar punto {i+1}",key=f"delpt_{pnombre}_{pl_nombre}_{i}"):
                 pl_data["puntos"].pop(i)
                 pl_data["data"]=[d for d in pl_data["data"] if d["Número"]!=i+1]

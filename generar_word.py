@@ -107,13 +107,12 @@ def generar_informe_word(general:dict, mediciones:list, plano_imgs:dict=None) ->
     HEADS=[
         "N°\nMed","Puesto de trabajo\no Área evaluada","Ubicación",
         "Descripción","Observaciones /\nRecomendaciones",
-        "Lux\n1","Lux\n2","Lux\n3","Lux\n4",
         "E\nMIN\n(lx)","E\nMAX\n(lx)","E\nMEDIO\n(lx)",
         "Promedio\nmedido\n(lx)","Valor\nUo","Interp.\nUo",
         "Tipo de Área\nRETILAP","Em\nrec.\n(lx)",
         "Interpretación\ndel Nivel de\nIluminancia",
     ]
-    CW=[0.9,3.0,1.8,2.2,3.2,1.0,1.0,1.0,1.0,1.1,1.1,1.1,1.3,1.1,1.1,2.8,1.1,2.0]
+    CW=[0.9,3.0,1.8,2.2,3.2,1.1,1.1,1.1,1.3,1.1,1.1,2.8,1.1,2.0]
     NC=len(HEADS)
 
     if mediciones:
@@ -144,8 +143,6 @@ def generar_informe_word(general:dict, mediciones:list, plano_imgs:dict=None) ->
                 str(m.get("puesto_evaluado","")) or str(m.get("area","")),
                 str(m.get("ubicacion_luminaria","")),
                 desc, obs,
-                str(m1) if m1 else "",str(m2) if m2 else "",
-                str(m3) if m3 else "",str(m4) if m4 else "",
                 str(e_min),str(e_max),str(e_medio),
                 str(m.get("promedio","")),
                 str(m.get("uo_calc","")),
