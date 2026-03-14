@@ -106,13 +106,14 @@ def generar_informe_word(general:dict, mediciones:list, plano_imgs:dict=None) ->
     # Tabla principal
     HEADS=[
         "N°\nMed","Puesto de trabajo\no Área evaluada","Ubicación",
-        "Descripción","Observaciones /\nRecomendaciones",
+        "Descripción",
         "E\nMIN\n(lx)","E\nMAX\n(lx)","E\nMEDIO\n(lx)",
         "Promedio\nmedido\n(lx)","Valor\nUo","Interp.\nUo",
         "Tipo de Área\nRETILAP","Em\nrec.\n(lx)",
         "Interpretación\ndel Nivel de\nIluminancia",
+        "Observaciones /\nRecomendaciones",
     ]
-    CW=[0.9,3.0,1.8,2.2,3.2,1.1,1.1,1.1,1.3,1.1,1.1,2.8,1.1,2.0]
+    CW=[0.9,3.0,1.8,2.2,1.1,1.1,1.1,1.3,1.1,1.1,2.8,1.1,2.0,3.2]
     NC=len(HEADS)
 
     if mediciones:
@@ -142,7 +143,7 @@ def generar_informe_word(general:dict, mediciones:list, plano_imgs:dict=None) ->
                 str(m.get("num","")),
                 str(m.get("puesto_evaluado","")) or str(m.get("area","")),
                 str(m.get("ubicacion_luminaria","")),
-                desc, obs,
+                desc,
                 str(e_min),str(e_max),str(e_medio),
                 str(m.get("promedio","")),
                 str(m.get("uo_calc","")),
@@ -150,6 +151,7 @@ def generar_informe_word(general:dict, mediciones:list, plano_imgs:dict=None) ->
                 str(m.get("area","")),
                 str(m.get("em_req","")),
                 "ADECUADO" if conf_m else "DEFICIENTE",
+                obs,
             ]
             dr=tbl.add_row()
             for ci,(val,cw) in enumerate(zip(vals_row,CW)):

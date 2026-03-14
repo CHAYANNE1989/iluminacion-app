@@ -249,26 +249,44 @@ def grafica_conformidad(data_rows,titulo=""):
     except Exception as e:
         st.warning(f"No se pudo generar la gráfica: {e}"); return None
 
-def generar_reporte_csv(proyecto_data,proyecto_nombre):
-    rows=[]
-    for pln,pi in proyecto_data["planos"].items():
-        for r in pi.get("data",[]):
-            rows.append({"Proyecto":proyecto_nombre,"Plano":pln,
-                "N° Med":r.get("Número",""),"Puesto de trabajo / Área evaluada":r.get("PuestoEvaluado",""),"Tipo Área RETILAP":r.get("TipoArea",""),
-                "Ubicación":r.get("UbicacionLuminaria",""),
-                "Tipo Iluminación":r.get("TipoIluminacion",""),
-                "Tipo Lámpara":r.get("TipoLampara",""),
-                "Control Luz Natural":r.get("ControlLuzNatural",""),
-                "Altura Luminaria (m)":r.get("AlturaLuminaria",""),
-                "Lux 1":r.get("Med1",""),"Lux 2":r.get("Med2",""),
-                "Lux 3":r.get("Med3",""),"Lux 4":r.get("Med4",""),
-                "E Min (lx)":r.get("EMin",""),"E Max (lx)":r.get("EMax",""),
-                "E Medio (lx)":r.get("EMedio",""),"Promedio (lx)":r.get("Promedio",""),
-                "Uo Calculado":r.get("Uo_calc",""),"Interpretación Uo":r.get("InterpretacionUo",""),
-                "Tipo Área RETILAP":r.get("TipoArea",""),"Em Requerida (lx)":r.get("Em_req",""),
-                "Resultado":"ADECUADO" if "✅" in str(r.get("Resultado","")) else "DEFICIENTE",
-                "Observaciones":r.get("Nota",""),"Recomendaciones":r.get("Recomendacion","")})
-    if rows: return pd.DataFrame(rows).to_csv(index=False).encode('utf-8')
+def generar_reporte_csv(proyecto_data, proyecto_nombre):
+    rows = []
+    for pln, pi in proyecto_data["planos"].items():
+        for r in pi.get("data", []):
+            conforme = "ADECUADO" if "✅" in str(r.get("Resultado","")) else "DEFICIENTE"
+            # Limpiar strings: quitar saltos de línea y comas internas
+            def _clean(v):
+                return str(v).replace("\n","  ").replace("\r","").replace(";","").strip() if v else ""
+            rows.append({
+                "Proyecto":                        _clean(proyecto_nombre),
+                "Plano":                           _clean(pln),
+                "N Med":                           r.get("Número",""),
+                "Puesto de trabajo / Area evaluada": _clean(r.get("PuestoEvaluado","")),
+                "Tipo Area RETILAP":               _clean(r.get("TipoArea","")),
+                "Ubicacion":                       _clean(r.get("UbicacionLuminaria","")),
+                "Tipo Iluminacion":                _clean(r.get("TipoIluminacion","")),
+                "Tipo Lampara":                    _clean(r.get("TipoLampara","")),
+                "Control Luz Natural":             _clean(r.get("ControlLuzNatural","")),
+                "Altura Luminaria (m)":            _clean(r.get("AlturaLuminaria","")),
+                "Lux 1":                           r.get("Med1",""),
+                "Lux 2":                           r.get("Med2",""),
+                "Lux 3":                           r.get("Med3",""),
+                "Lux 4":                           r.get("Med4",""),
+                "E Min (lx)":                      r.get("EMin",""),
+                "E Max (lx)":                      r.get("EMax",""),
+                "E Medio (lx)":                    r.get("EMedio",""),
+                "Promedio (lx)":                   r.get("Promedio",""),
+                "Uo Calculado":                    r.get("Uo_calc",""),
+                "Interpretacion Uo":               _clean(r.get("InterpretacionUo","")),
+                "Em Requerida (lx)":               r.get("Em_req",""),
+                "Resultado":                       conforme,
+                "Observaciones":                   _clean(r.get("Nota","")),
+                "Recomendaciones":                 _clean(r.get("Recomendacion","")),
+            })
+    if rows:
+        df = pd.DataFrame(rows)
+        # UTF-8 con BOM para que Excel lo abra correctamente con tildes y ñ
+        return df.to_csv(index=False, encoding='utf-8-sig', sep=';').encode('utf-8-sig')
     return None
 
 # ============================================================================
@@ -391,7 +409,6 @@ def generar_reporte_pdf(proyecto_data,proyecto_nombre):
                 Paragraph("<b>Puesto de trabajo\no Área evaluada</b>",eCe),
                 Paragraph("<b>Ubicación</b>",eCe),
                 Paragraph("<b>Descripción</b>",eCe),
-                Paragraph("",eCe),  # obs/recomendaciones
                 Paragraph("<b>E\nMIN\n(lx)</b>",eCe),
                 Paragraph("<b>E\nMAX\n(lx)</b>",eCe),
                 Paragraph("<b>E\nMEDIO\n(lx)</b>",eCe),
@@ -401,10 +418,11 @@ def generar_reporte_pdf(proyecto_data,proyecto_nombre):
                 Paragraph("<b>Tipo de Área\nRETILAP</b>",eCe),
                 Paragraph("<b>Em\nrec.\n(lx)</b>",eCe),
                 Paragraph("<b>Interpretación\nNivel de\nIluminancia</b>",eCe),
+                Paragraph("<b>Observaciones /\nRecomendaciones</b>",eCe),
             ]
-            cw=[0.9*cm,3.0*cm,1.8*cm,2.0*cm,3.0*cm,
+            cw=[0.9*cm,3.0*cm,1.8*cm,2.0*cm,
                 1.1*cm,1.1*cm,1.1*cm,1.3*cm,
-                1.1*cm,1.1*cm,2.8*cm,1.1*cm,2.0*cm]
+                1.1*cm,1.1*cm,2.8*cm,1.1*cm,2.0*cm,3.2*cm]
 
             tabla=[enc]
             for r in drows:
@@ -428,7 +446,7 @@ def generar_reporte_pdf(proyecto_data,proyecto_nombre):
                     Paragraph(str(r.get("Número","")),eCe),
                     Paragraph(str(r.get("PuestoEvaluado","")) or str(r.get("TipoArea","")),eIz),
                     Paragraph(str(r.get("UbicacionLuminaria","")),eCe),
-                    desc, obs,
+                    desc,
                     Paragraph(str(e_min),eCe),
                     Paragraph(str(e_max),eCe),
                     Paragraph(str(e_med),eCe),
@@ -438,6 +456,7 @@ def generar_reporte_pdf(proyecto_data,proyecto_nombre):
                     Paragraph(str(r.get("TipoArea","")),eIz),
                     Paragraph(str(r.get("Em_req","")),eCe),
                     Paragraph("ADECUADO" if conforme else "DEFICIENTE",eCe),
+                    obs,
                 ]
                 tabla.append(fila)
 
@@ -451,14 +470,14 @@ def generar_reporte_pdf(proyecto_data,proyecto_nombre):
                 ('ROWBACKGROUNDS',(0,1),(-1,-1),[BLANCO,GR_CLA]),
                 ('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2),
                 ('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),
-                ('ALIGN',(3,1),(4,-1),'LEFT'),('ALIGN',(1,1),(1,-1),'LEFT'),
-                ('ALIGN',(11,1),(11,-1),'LEFT'),
+                ('ALIGN',(3,1),(3,-1),'LEFT'),('ALIGN',(13,1),(13,-1),'LEFT'),
+                ('ALIGN',(1,1),(1,-1),'LEFT'),('ALIGN',(10,1),(10,-1),'LEFT'),
             ]
             for idx,r in enumerate(drows,1):
                 c="✅" in str(r.get("Resultado",""))
-                ts+=[('BACKGROUND',(13,idx),(13,idx),VERDE if c else ROJO),
-                     ('TEXTCOLOR',(13,idx),(13,idx),BLANCO),
-                     ('FONTNAME',(13,idx),(13,idx),'Helvetica-Bold')]
+                ts+=[('BACKGROUND',(12,idx),(12,idx),VERDE if c else ROJO),
+                     ('TEXTCOLOR',(12,idx),(12,idx),BLANCO),
+                     ('FONTNAME',(12,idx),(12,idx),'Helvetica-Bold')]
             tab.setStyle(TableStyle(ts))
             story.append(tab)
             story+=[Spacer(1,0.1*inch),PageBreak()]
@@ -523,7 +542,7 @@ def pagina_inicio():
                 if csv_d:
                     st.download_button("📊 CSV",data=csv_d,
                         file_name=f"RETILAP_{pnombre[:18].replace(' ','_')}.csv",
-                        mime="text/csv",key=f"csv_{idx}",use_container_width=True)
+                        mime="text/csv;charset=utf-8",key=f"csv_{idx}",use_container_width=True)
                 pdf_d=generar_reporte_pdf(pdata,pnombre)
                 if pdf_d:
                     st.download_button("📄 PDF",data=pdf_d,
