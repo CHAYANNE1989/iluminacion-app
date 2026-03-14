@@ -141,7 +141,7 @@ def generar_informe_word(general:dict, mediciones:list, plano_imgs:dict=None) ->
                  f"Rec.: {m.get('recomendacion','')}")
             vals_row=[
                 str(m.get("num","")),
-                str(m.get("area","")),
+                str(m.get("puesto_evaluado","")) or str(m.get("area","")),
                 str(m.get("ubicacion_luminaria","")),
                 desc, obs,
                 str(m1) if m1 else "",str(m2) if m2 else "",

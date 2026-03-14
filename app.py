@@ -254,7 +254,7 @@ def generar_reporte_csv(proyecto_data,proyecto_nombre):
     for pln,pi in proyecto_data["planos"].items():
         for r in pi.get("data",[]):
             rows.append({"Proyecto":proyecto_nombre,"Plano":pln,
-                "N° Med":r.get("Número",""),"Puesto/Área":r.get("TipoArea",""),
+                "N° Med":r.get("Número",""),"Puesto de trabajo / Área evaluada":r.get("PuestoEvaluado",""),"Tipo Área RETILAP":r.get("TipoArea",""),
                 "Ubicación":r.get("UbicacionLuminaria",""),
                 "Tipo Iluminación":r.get("TipoIluminacion",""),
                 "Tipo Lámpara":r.get("TipoLampara",""),
@@ -431,7 +431,7 @@ def generar_reporte_pdf(proyecto_data,proyecto_nombre):
                     f"<b>Rec.:</b> {r.get('Recomendacion','')}",eIz)
                 fila=[
                     Paragraph(str(r.get("Número","")),eCe),
-                    Paragraph(str(r.get("TipoArea","")),eIz),
+                    Paragraph(str(r.get("PuestoEvaluado","")) or str(r.get("TipoArea","")),eIz),
                     Paragraph(str(r.get("UbicacionLuminaria","")),eCe),
                     desc, obs,
                     Paragraph(str(m1) if m1 else "",eCe),
@@ -546,7 +546,7 @@ def pagina_inicio():
                                 for d in pi.get("data",[]):
                                     todas_med.append({
                                         "num":d.get("Número",0),"area":d.get("TipoArea",""),
-                                        "ubicacion":d.get("UbicacionLuminaria",""),
+                                        "puesto_evaluado":d.get("PuestoEvaluado",""),"ubicacion":d.get("UbicacionLuminaria",""),
                                         "tipo_iluminacion":d.get("TipoIluminacion",""),
                                         "tipo_lampara":d.get("TipoLampara",""),
                                         "ubicacion_luminaria":d.get("UbicacionLuminaria",""),
@@ -765,6 +765,11 @@ def pagina_editar_plano():
                 ubic_lum=st.selectbox("Ubicación luminaria",UBIC,
                     index=UBIC.index(ul_v) if ul_v in UBIC else 0,key=f"ubic_{pnombre}_{pl_nombre}_{i}")
 
+            puesto=st.text_input("🪑 Puesto de trabajo / Área evaluada",
+                value=ex.get("PuestoEvaluado",""),
+                placeholder="Ej: Escritorio contador, Línea de ensamble 3...",
+                key=f"puesto_{pnombre}_{pl_nombre}_{i}")
+
             cd,ce2=st.columns(2)
             with cd:
                 cl_v=ex.get("ControlLuzNatural","N/A")
@@ -810,7 +815,7 @@ def pagina_editar_plano():
                     "Promedio":promedio,"Uo_calc":uo_calc,"InterpretacionUo":interp_uo,
                     "Resultado":resultado,"Color":color_res,
                     "TipoIluminacion":tipo_ilum,"TipoLampara":tipo_lamp,
-                    "UbicacionLuminaria":ubic_lum,"ControlLuzNatural":ctrl_luz,
+                    "PuestoEvaluado":puesto,"UbicacionLuminaria":ubic_lum,"ControlLuzNatural":ctrl_luz,
                     "AlturaLuminaria":altura,"Nota":nota.strip(),"Recomendacion":recom.strip(),
                     "Foto":foto_bytes is not None,
                 }
