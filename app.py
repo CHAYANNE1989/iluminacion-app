@@ -508,11 +508,9 @@ def generar_reporte_pdf(proyecto_data,proyecto_nombre):
             enc=[
                 Paragraph("<b>N°\nMed</b>",eCe),
                 Paragraph("<b>Puesto de trabajo\no Área evaluada</b>",eCe),
-                Paragraph("<b>Ubicación</b>",eCe),
                 Paragraph("<b>Descripción</b>",eCe),
                 Paragraph("<b>E\nMIN\n(lx)</b>",eCe),
                 Paragraph("<b>E\nMAX\n(lx)</b>",eCe),
-                Paragraph("<b>E\nMEDIO\n(lx)</b>",eCe),
                 Paragraph("<b>Promedio\nmedido\n(lx)</b>",eCe),
                 Paragraph("<b>Valor\nUo</b>",eCe),
                 Paragraph("<b>Interp.\nUo</b>",eCe),
@@ -521,9 +519,8 @@ def generar_reporte_pdf(proyecto_data,proyecto_nombre):
                 Paragraph("<b>Interpretación\nNivel de\nIluminancia</b>",eCe),
                 Paragraph("<b>Observaciones /\nRecomendaciones</b>",eCe),
             ]
-            cw=[0.9*cm,3.0*cm,1.8*cm,2.0*cm,
-                1.1*cm,1.1*cm,1.1*cm,1.3*cm,
-                1.1*cm,1.1*cm,2.8*cm,1.1*cm,2.0*cm,3.2*cm]
+            cw=[0.9*cm,3.2*cm,2.5*cm,1.1*cm,1.1*cm,1.3*cm,
+                1.1*cm,1.1*cm,3.2*cm,1.1*cm,2.0*cm,3.5*cm]
 
             tabla=[enc]
             for r in drows:
@@ -546,11 +543,9 @@ def generar_reporte_pdf(proyecto_data,proyecto_nombre):
                 fila=[
                     Paragraph(str(r.get("Número","")),eCe),
                     Paragraph(str(r.get("PuestoEvaluado","")) or str(r.get("TipoArea","")),eIz),
-                    Paragraph(str(r.get("UbicacionLuminaria","")),eCe),
                     desc,
                     Paragraph(str(e_min),eCe),
                     Paragraph(str(e_max),eCe),
-                    Paragraph(str(e_med),eCe),
                     Paragraph(str(r.get("Promedio","")),eCe),
                     Paragraph(str(r.get("Uo_calc","")),eCe),
                     Paragraph(str(r.get("InterpretacionUo","")),eCe),
@@ -571,14 +566,14 @@ def generar_reporte_pdf(proyecto_data,proyecto_nombre):
                 ('ROWBACKGROUNDS',(0,1),(-1,-1),[BLANCO,GR_CLA]),
                 ('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2),
                 ('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),
-                ('ALIGN',(3,1),(3,-1),'LEFT'),('ALIGN',(13,1),(13,-1),'LEFT'),
-                ('ALIGN',(1,1),(1,-1),'LEFT'),('ALIGN',(10,1),(10,-1),'LEFT'),
+                ('ALIGN',(2,1),(2,-1),'LEFT'),('ALIGN',(11,1),(11,-1),'LEFT'),
+                ('ALIGN',(1,1),(1,-1),'LEFT'),('ALIGN',(8,1),(8,-1),'LEFT'),
             ]
             for idx,r in enumerate(drows,1):
                 c="✅" in str(r.get("Resultado",""))
-                ts+=[('BACKGROUND',(12,idx),(12,idx),VERDE if c else ROJO),
-                     ('TEXTCOLOR',(12,idx),(12,idx),BLANCO),
-                     ('FONTNAME',(12,idx),(12,idx),'Helvetica-Bold')]
+                ts+=[('BACKGROUND',(10,idx),(10,idx),VERDE if c else ROJO),
+                     ('TEXTCOLOR',(10,idx),(10,idx),BLANCO),
+                     ('FONTNAME',(10,idx),(10,idx),'Helvetica-Bold')]
             tab.setStyle(TableStyle(ts))
             story.append(tab)
             story+=[Spacer(1,0.1*inch),PageBreak()]
