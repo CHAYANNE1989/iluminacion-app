@@ -232,11 +232,16 @@ def generar_informe_word(general: dict, mediciones: list,
                     run.font.highlight_color = None
             break
 
-    # ── Insertar tabla de resultados ─────────────────────────────────────────
-    # Buscar párrafo "Tabla 4" e insertar tabla después
+    # ── Actualizar Tabla 2 (niveles RETILAP) con áreas reales ──────────────
+    # La tabla doc.tables[1] tiene las áreas — reemplazar con las del proyecto
+    if len(doc.tables) > 1 and mediciones:
+        _actualizar_tabla2_retilap(doc.tables[1], mediciones)
+
+    # ── Insertar tabla de resultados en P189 (Tabla 4) ───────────────────────
+    # Buscar exactamente el párrafo "Tabla 4." para insertar DESPUÉS de él
     idx_tabla4 = None
     for i, para in enumerate(paras):
-        if 'Tabla 4' in para.text:
+        if para.text.strip().startswith('Tabla 4'):
             idx_tabla4 = i
             break
 
@@ -266,6 +271,73 @@ def generar_informe_word(general: dict, mediciones: list,
 
 def _num_txt(n, nums):
     return nums.get(n, str(n))
+
+
+def _actualizar_tabla2_retilap(tabla, mediciones):
+    """
+    Rellena la Tabla 2 de la plantilla con las áreas RETILAP
+    realmente usadas en los puntos evaluados (sin duplicados).
+    """
+    from docx.oxml import OxmlElement as OE
+    from docx.oxml.ns import qn
+
+    # Obtener áreas únicas usadas, preservando orden
+    areas_usadas = []
+    vistas = set()
+    for m in mediciones:
+        area  = m.get("area", "")
+        em    = m.get("em_req", "")
+        uo    = m.get("uo_min", m.get("uo_calc", ""))
+        clave = area
+        if area and clave not in vistas:
+            vistas.add(clave)
+            areas_usadas.append((area, str(em), str(uo) if uo else ""))
+
+    if not areas_usadas:
+        return
+
+    # Guardar el formato de la fila de encabezado (fila 0)
+    # Eliminar todas las filas de datos existentes (fila 1 en adelante)
+    tbl = tabla._tbl
+    filas = tbl.findall(qn('w:tr'))
+    for fila in filas[1:]:   # conservar encabezado (fila 0)
+        tbl.remove(fila)
+
+    # Agregar una fila por cada área única
+    for area, em, uo in areas_usadas:
+        # Copiar estructura de la fila de encabezado como base
+        tr = OE('w:tr')
+        for ci, val in enumerate([area, f"{em} lx" if em else "", uo]):
+            tc = OE('w:tc')
+            tcPr = OE('w:tcPr')
+            # Ancho de celda igual al original
+            try:
+                orig_w = filas[0].findall(qn('w:tc'))[ci].find(qn('w:tcPr')).find(qn('w:tcW'))
+                if orig_w is not None:
+                    new_w = OE('w:tcW')
+                    new_w.set(qn('w:w'), orig_w.get(qn('w:w')))
+                    new_w.set(qn('w:type'), orig_w.get(qn('w:type')))
+                    tcPr.append(new_w)
+            except: pass
+            tc.append(tcPr)
+            p = OE('w:p')
+            pPr = OE('w:pPr')
+            jc = OE('w:jc')
+            jc.set(qn('w:val'), 'center' if ci > 0 else 'left')
+            pPr.append(jc)
+            p.append(pPr)
+            r = OE('w:r')
+            rPr = OE('w:rPr')
+            sz = OE('w:sz'); sz.set(qn('w:val'), '18')
+            rPr.append(sz)
+            r.append(rPr)
+            t_elem = OE('w:t')
+            t_elem.text = val
+            r.append(t_elem)
+            p.append(r)
+            tc.append(p)
+            tr.append(tc)
+        tbl.append(tr)
 
 
 def _insertar_tabla_resultados(doc, para_ref, mediciones, general):
