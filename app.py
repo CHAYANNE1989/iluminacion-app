@@ -224,30 +224,65 @@ def dibujar_puntos(img,data_rows):
         except: pass
     return draw_img
 
-def grafica_conformidad(data_rows,titulo=""):
+def grafica_conformidad(data_rows, titulo=""):
     try:
-        import matplotlib; matplotlib.use('Agg')
+        import matplotlib
+        matplotlib.use('Agg')
         import matplotlib.pyplot as plt
-        total=len(data_rows)
-        conformes=sum(1 for r in data_rows if "✅" in str(r.get("Resultado","")))
-        deficientes=total-conformes
-        if total==0: return None
-        pct_conf=round(conformes/total*100,1); pct_def=round(deficientes/total*100,1)
-        fig,ax=plt.subplots(figsize=(4.5,4.5),facecolor='#f8fafc')
+        import matplotlib.patches as mpatches
+
+        total      = len(data_rows)
+        conformes  = sum(1 for r in data_rows if "✅" in str(r.get("Resultado", "")))
+        deficientes = total - conformes
+        if total == 0:
+            return None
+
+        pct_conf = round(conformes / total * 100, 1)
+        pct_def  = round(deficientes / total * 100, 1)
+
+        fig, ax = plt.subplots(figsize=(5.5, 2.8), facecolor='#f8fafc')
         ax.set_facecolor('#f8fafc')
-        valores=[pct_conf,pct_def] if deficientes>0 else [100]
-        labels=[f"Adecuados\n{pct_conf}%",f"Deficientes\n{pct_def}%"] if deficientes>0 else [f"Adecuados\n100%"]
-        colores=['#22c55e','#ef4444'] if deficientes>0 else ['#22c55e']
-        explotar=[0.04,0.04] if deficientes>0 else [0]
-        ax.pie(valores,labels=labels,colors=colores,explode=explotar,startangle=90,
-               textprops={'fontsize':11,'fontweight':'bold'},
-               wedgeprops={'linewidth':2,'edgecolor':'white'})
-        ax.set_title(titulo or "Conformidad RETILAP",fontsize=12,fontweight='bold',color='#1a3a5c',pad=12)
-        ax.text(0,0,f"{total}\npuntos",ha='center',va='center',fontsize=10,color='#475569',fontweight='bold')
-        buf=io.BytesIO(); plt.savefig(buf,format='PNG',bbox_inches='tight',dpi=130,facecolor='#f8fafc')
-        plt.close(fig); buf.seek(0); return buf.getvalue()
+
+        categorias = ['Adecuados', 'Deficientes']
+        valores    = [pct_conf, pct_def]
+        colores    = ['#22c55e', '#ef4444']
+        y_pos      = [1, 0]
+
+        bars = ax.barh(y_pos, valores, color=colores, height=0.5,
+                       edgecolor='white', linewidth=1.5)
+
+        # Etiquetas dentro de las barras
+        for bar, val, n in zip(bars, valores, [conformes, deficientes]):
+            ax.text(val/2, bar.get_y() + bar.get_height()/2,
+                    f"{val}%  ({n} pts)",
+                    ha='center', va='center',
+                    fontsize=10, fontweight='bold', color='white')
+
+        ax.set_yticks(y_pos)
+        ax.set_yticklabels(categorias, fontsize=11, fontweight='bold',
+                           color='#1a3a5c')
+        ax.set_xlim(0, 110)
+        ax.set_xlabel('Porcentaje (%)', fontsize=9, color='#475569')
+        ax.set_title(titulo or f'Conformidad RETILAP  —  {total} puntos',
+                     fontsize=11, fontweight='bold', color='#1a3a5c', pad=10)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['left'].set_visible(False)
+        ax.tick_params(axis='x', colors='#94a3b8')
+        ax.tick_params(axis='y', left=False)
+        ax.xaxis.grid(True, linestyle='--', alpha=0.4, color='#cbd5e1')
+        ax.set_axisbelow(True)
+
+        plt.tight_layout()
+        buf = io.BytesIO()
+        plt.savefig(buf, format='PNG', bbox_inches='tight', dpi=140,
+                    facecolor='#f8fafc')
+        plt.close(fig)
+        buf.seek(0)
+        return buf.getvalue()
     except Exception as e:
-        st.warning(f"No se pudo generar la gráfica: {e}"); return None
+        st.warning(f"No se pudo generar la gráfica: {e}")
+        return None
 
 def generar_reporte_csv(proyecto_data, proyecto_nombre):
     rows = []
@@ -361,23 +396,89 @@ def generar_reporte_pdf(proyecto_data,proyecto_nombre):
         ]))
         story.append(tI); story.append(Spacer(1,0.08*inch))
 
-        # Resumen
+        # ── RESUMEN EJECUTIVO ──────────────────────────────────────────────
         all_data=[r for pi in proyecto_data["planos"].values() for r in pi.get("data",[])]
         tot=len(all_data); conf=sum(1 for r in all_data if "✅" in str(r.get("Resultado","")))
+        defic_list=[r for r in all_data if "❌" in str(r.get("Resultado",""))]
+
         if tot>0:
             pct=round(conf/tot*100,1)
+
+            # Título resumen ejecutivo
+            story.append(Paragraph("RESUMEN EJECUTIVO",
+                ParagraphStyle('RE',parent=S['Heading1'],fontSize=12,
+                    textColor=AZ_OSC,spaceBefore=6,spaceAfter=4,alignment=1)))
+            story.append(HRFlowable(width="100%",thickness=1.5,color=AZ_OSC))
+            story.append(Spacer(1,0.06*inch))
+
+            # Tabla de totales
             rD=[[Paragraph("<b>Total puntos</b>",eCe),Paragraph("<b>Adecuados</b>",eCe),
                  Paragraph("<b>Deficientes</b>",eCe),Paragraph("<b>% Adecuados</b>",eCe)],
                 [str(tot),str(conf),str(tot-conf),f"{pct}%"]]
             tR=Table(rD,colWidths=[pw/4]*4)
             tR.setStyle(TableStyle([
                 ('BACKGROUND',(0,0),(-1,0),AZ_OSC),('TEXTCOLOR',(0,0),(-1,0),BLANCO),
-                ('FONTNAME',(0,0),(-1,-1),'Helvetica-Bold'),('FONTSIZE',(0,0),(-1,-1),9),
+                ('FONTNAME',(0,0),(-1,-1),'Helvetica-Bold'),('FONTSIZE',(0,0),(-1,-1),10),
                 ('ALIGN',(0,0),(-1,-1),'CENTER'),('GRID',(0,0),(-1,-1),0.4,AZ_CLA),
                 ('BACKGROUND',(0,1),(-1,1),GR_CLA),
                 ('TEXTCOLOR',(3,1),(3,1),VERDE if pct>=80 else ROJO),
+                ('TOPPADDING',(0,0),(-1,-1),5),('BOTTOMPADDING',(0,0),(-1,-1),5),
             ]))
-            story.append(tR); story.append(Spacer(1,0.08*inch))
+            story.append(tR); story.append(Spacer(1,0.1*inch))
+
+            # Gráfica de barras en el PDF
+            try:
+                graf_bytes=grafica_conformidad(all_data,"Distribución de Conformidad")
+                if graf_bytes:
+                    story.append(RLImage(io.BytesIO(graf_bytes),width=pw*0.55,height=pw*0.28))
+                    story.append(Spacer(1,0.1*inch))
+            except: pass
+
+            # Áreas con más deficiencias
+            if defic_list:
+                story.append(Paragraph("<b>Puntos deficientes detectados:</b>",eNo))
+                story.append(Spacer(1,0.04*inch))
+                defic_rows=[[
+                    Paragraph("<b>N°</b>",eCe),
+                    Paragraph("<b>Puesto / Área</b>",eCe),
+                    Paragraph("<b>Promedio medido</b>",eCe),
+                    Paragraph("<b>Em requerida</b>",eCe),
+                    Paragraph("<b>Déficit</b>",eCe),
+                ]]
+                for r in defic_list:
+                    prom=r.get("Promedio",0) or 0
+                    em=r.get("Em_req",0) or 0
+                    deficit=round(em-prom,1) if em>prom else 0
+                    defic_rows.append([
+                        Paragraph(str(r.get("Número","")),eCe),
+                        Paragraph(str(r.get("PuestoEvaluado","") or r.get("TipoArea","")),eIz),
+                        Paragraph(f"{prom} lx",eCe),
+                        Paragraph(f"{em} lx",eCe),
+                        Paragraph(f"-{deficit} lx",eCe),
+                    ])
+                tD=Table(defic_rows,colWidths=[1.2*cm,pw*0.35,pw*0.18,pw*0.18,pw*0.15])
+                tD.setStyle(TableStyle([
+                    ('BACKGROUND',(0,0),(-1,0),ROJO),('TEXTCOLOR',(0,0),(-1,0),BLANCO),
+                    ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),
+                    ('FONTSIZE',(0,0),(-1,-1),7.5),
+                    ('ALIGN',(0,0),(-1,-1),'CENTER'),('GRID',(0,0),(-1,-1),0.3,AZ_CLA),
+                    ('ROWBACKGROUNDS',(0,1),(-1,-1),[colors.HexColor('#fff5f5'),BLANCO]),
+                    ('TOPPADDING',(0,0),(-1,-1),3),('BOTTOMPADDING',(0,0),(-1,-1),3),
+                    ('ALIGN',(1,1),(1,-1),'LEFT'),
+                ]))
+                story.append(tD)
+                story.append(Spacer(1,0.06*inch))
+
+            # Conclusión
+            estado="SATISFACTORIO" if pct>=80 else "REQUIERE MEJORAS"
+            color_est=VERDE if pct>=80 else ROJO
+            concl=Paragraph(
+                f"<b>Conclusión general:</b> El {pct}% de los puntos evaluados cumple con los "
+                f"niveles mínimos de iluminancia exigidos por la norma RETILAP 2024. "
+                f"Estado general: <b>{estado}</b>.",
+                ParagraphStyle('CL',parent=S['Normal'],fontSize=8.5,
+                    textColor=color_est,spaceBefore=4,spaceAfter=4))
+            story.append(concl)
 
         story.append(PageBreak())
 
@@ -774,8 +875,17 @@ def pagina_editar_plano():
                 guardar_proyectos(st.session_state.proyectos); st.rerun()
 
             ta_g=ex.get("TipoArea",TIPOS[0])
-            tipo_area=st.selectbox("🏷️ Tipo de área RETILAP",TIPOS,
-                index=TIPOS.index(ta_g) if ta_g in TIPOS else 0,
+            # Búsqueda rápida RETILAP
+            busq=st.text_input("🔍 Buscar área RETILAP",value="",
+                placeholder="Escribe p.ej: oficina, taller, educación...",
+                key=f"busq_{pnombre}_{pl_nombre}_{i}")
+            tipos_filtrados=[t for t in TIPOS if busq.lower() in t.lower()] if busq else TIPOS
+            if not tipos_filtrados:
+                st.caption("⚠️ Sin resultados — mostrando todas")
+                tipos_filtrados=TIPOS
+            idx_def=tipos_filtrados.index(ta_g) if ta_g in tipos_filtrados else 0
+            tipo_area=st.selectbox("🏷️ Tipo de área RETILAP",tipos_filtrados,
+                index=idx_def,
                 key=f"ta_{pnombre}_{pl_nombre}_{i}")
             em_req=RETILAP_REFERENCIA[tipo_area]["Em"]
             uo_min=RETILAP_REFERENCIA[tipo_area]["Uo"]

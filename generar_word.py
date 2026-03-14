@@ -80,18 +80,61 @@ def generar_informe_word(general:dict, mediciones:list, plano_imgs:dict=None) ->
             _txt(cell,val,bold=is_lbl,sz=8,color=AZ_OSC if is_lbl else NEGRO,align=WD_ALIGN_PARAGRAPH.LEFT)
     doc.add_paragraph()
 
-    # Resumen
+    # ── RESUMEN EJECUTIVO ──────────────────────────────────────────────────
     tot=len(mediciones); conf=sum(1 for m in mediciones if "✅" in str(m.get("resultado",""))); defic=tot-conf
     pct=round(conf/tot*100,1) if tot>0 else 0
+    defic_list=[m for m in mediciones if "❌" in str(m.get("resultado",""))]
+
+    # Título
+    p_re=doc.add_paragraph(); p_re.alignment=WD_ALIGN_PARAGRAPH.CENTER
+    r_re=p_re.add_run("RESUMEN EJECUTIVO")
+    r_re.bold=True; r_re.font.size=Pt(13); r_re.font.color.rgb=AZ_OSC
+
+    # Tabla totales
     rs=doc.add_table(rows=2,cols=4); rs.alignment=WD_TABLE_ALIGNMENT.CENTER; _borders(rs)
     rh=["Total puntos","Adecuados","Deficientes","% Adecuados"]
     rv=[str(tot),str(conf),str(defic),f"{pct}%"]
     for ci,h in enumerate(rh):
-        cell=rs.cell(0,ci); cell.width=Cm(4); _bg(cell,AZ_OSC); _txt(cell,h,bold=True,color=BLANCO,sz=9)
+        cell=rs.cell(0,ci); cell.width=Cm(4); _bg(cell,AZ_OSC); _txt(cell,h,bold=True,color=BLANCO,sz=10)
     for ci,v in enumerate(rv):
         cell=rs.cell(1,ci); cell.width=Cm(4); _bg(cell,GRIS)
-        c=(VERDE if pct>=80 else ROJO) if ci==3 else NEGRO
-        _txt(cell,v,bold=(ci==3),color=c,sz=9)
+        col=(VERDE if pct>=80 else ROJO) if ci==3 else NEGRO
+        _txt(cell,v,bold=(ci==3),color=col,sz=10)
+    doc.add_paragraph()
+
+    # Tabla de puntos deficientes
+    if defic_list:
+        p_d=doc.add_paragraph()
+        r_d=p_d.add_run("Puntos deficientes detectados:")
+        r_d.bold=True; r_d.font.size=Pt(10); r_d.font.color.rgb=ROJO
+
+        td=doc.add_table(rows=1,cols=5); td.alignment=WD_TABLE_ALIGNMENT.CENTER; _borders(td)
+        hdrs_d=["N°","Puesto / Área","Promedio medido","Em requerida","Déficit"]
+        cw_d=[1.0,7.0,3.5,3.5,2.5]
+        for ci,(h,cw) in enumerate(zip(hdrs_d,cw_d)):
+            cell=td.cell(0,ci); cell.width=Cm(cw)
+            _bg(cell,ROJO); _txt(cell,h,bold=True,color=BLANCO,sz=8)
+        for idx_d,m in enumerate(defic_list):
+            prom=m.get("promedio",0) or 0; em=m.get("em_req",0) or 0
+            deficit=round(em-prom,1) if em>prom else 0
+            bg_d=GRIS if idx_d%2==0 else BLANCO
+            dr=td.add_row()
+            vals_d=[str(m.get("num","")),
+                    str(m.get("puesto_evaluado","") or m.get("area","")),
+                    f"{prom} lx",f"{em} lx",f"-{deficit} lx"]
+            for ci,(v,cw) in enumerate(zip(vals_d,cw_d)):
+                cell=dr.cells[ci]; cell.width=Cm(cw); _bg(cell,bg_d)
+                al=WD_ALIGN_PARAGRAPH.LEFT if ci==1 else WD_ALIGN_PARAGRAPH.CENTER
+                _txt(cell,v,sz=8,align=al)
+        doc.add_paragraph()
+
+    # Conclusión
+    estado="SATISFACTORIO" if pct>=80 else "REQUIERE MEJORAS"
+    p_c=doc.add_paragraph()
+    r_c=p_c.add_run(f"Conclusión general: El {pct}% de los puntos evaluados cumple con los niveles mínimos de iluminancia exigidos por la norma RETILAP 2024. Estado general: {estado}.")
+    r_c.bold=True; r_c.font.size=Pt(9)
+    r_c.font.color.rgb=VERDE if pct>=80 else ROJO
+
     doc.add_page_break()
 
     # Planos
