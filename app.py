@@ -563,17 +563,23 @@ def generar_reporte_pdf(proyecto_data,proyecto_nombre):
                 ('FONTSIZE',(0,0),(-1,-1),6),
                 ('ALIGN',(0,0),(-1,-1),'CENTER'),('VALIGN',(0,0),(-1,-1),'MIDDLE'),
                 ('GRID',(0,0),(-1,-1),0.3,AZ_CLA),
-                ('ROWBACKGROUNDS',(0,1),(-1,-1),[BLANCO,GR_CLA]),
                 ('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2),
                 ('LEFTPADDING',(0,0),(-1,-1),2),('RIGHTPADDING',(0,0),(-1,-1),2),
                 ('ALIGN',(2,1),(2,-1),'LEFT'),('ALIGN',(11,1),(11,-1),'LEFT'),
                 ('ALIGN',(1,1),(1,-1),'LEFT'),('ALIGN',(8,1),(8,-1),'LEFT'),
             ]
             for idx,r in enumerate(drows,1):
-                c="✅" in str(r.get("Resultado",""))
-                ts+=[('BACKGROUND',(10,idx),(10,idx),VERDE if c else ROJO),
-                     ('TEXTCOLOR',(10,idx),(10,idx),BLANCO),
-                     ('FONTNAME',(10,idx),(10,idx),'Helvetica-Bold')]
+                conf_r="✅" in str(r.get("Resultado",""))
+                # Fondo alterno por fila (todas las columnas menos la de interpretación)
+                bg_fila=BLANCO if idx%2==1 else GR_CLA
+                ts+=[
+                    ('BACKGROUND',(0,idx),(9,idx),bg_fila),   # cols 0-9
+                    ('BACKGROUND',(11,idx),(11,idx),bg_fila), # col 11 obs
+                    # Columna 10 = Interpretación: siempre verde o rojo
+                    ('BACKGROUND',(10,idx),(10,idx),VERDE if conf_r else ROJO),
+                    ('TEXTCOLOR',(10,idx),(10,idx),BLANCO),
+                    ('FONTNAME',(10,idx),(10,idx),'Helvetica-Bold'),
+                ]
             tab.setStyle(TableStyle(ts))
             story.append(tab)
             story+=[Spacer(1,0.1*inch),PageBreak()]

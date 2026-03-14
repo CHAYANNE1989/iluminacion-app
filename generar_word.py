@@ -199,13 +199,13 @@ def generar_informe_word(general:dict, mediciones:list, plano_imgs:dict=None) ->
             dr=tbl.add_row()
             for ci,(val,cw) in enumerate(zip(vals_row,CW)):
                 cell=dr.cells[ci]; cell.width=Cm(cw)
-                if ci==NC-1:  # Interpretación final
+                if ci==NC-2:  # Interpretación = penúltima columna
                     _bg(cell,VERDE if conf_m else ROJO)
                     _txt(cell,val,bold=True,color=BLANCO,sz=6.5)
                 else:
                     _bg(cell,rbg)
                     al=(WD_ALIGN_PARAGRAPH.LEFT
-                        if ci in(1,3,4,15) else WD_ALIGN_PARAGRAPH.CENTER)
+                        if ci in(1,2,8,NC-1) else WD_ALIGN_PARAGRAPH.CENTER)
                     _txt(cell,val,sz=6.5,align=al)
 
     # Pie
