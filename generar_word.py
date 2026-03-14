@@ -248,6 +248,26 @@ def generar_informe_word(general: dict, mediciones: list,
     if idx_tabla4 is not None and mediciones:
         _insertar_tabla_resultados(doc, paras[idx_tabla4], mediciones, general)
 
+    # ── Insertar gráfica en P196 (Grafica 1) ────────────────────────────────
+    for i, para in enumerate(paras):
+        if para.text.strip().startswith('Grafica 1'):
+            try:
+                graf_bytes = _generar_grafica_bytes(mediciones)
+                if graf_bytes:
+                    # Insertar imagen justo después del párrafo Grafica 1
+                    new_p = OxmlElement('w:p')
+                    para._p.addnext(new_p)
+                    # Crear párrafo centrado con la imagen
+                    p_graf = doc.add_paragraph()
+                    p_graf.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    run_g = p_graf.add_run()
+                    run_g.add_picture(io.BytesIO(graf_bytes), width=Cm(14))
+                    # Mover ese párrafo justo después de Grafica 1
+                    para._p.addnext(p_graf._p)
+            except Exception as e:
+                pass
+            break
+
     # ── Insertar planos ──────────────────────────────────────────────────────
     if plano_imgs:
         for pln_nombre, pln_img in plano_imgs.items():
@@ -271,6 +291,60 @@ def generar_informe_word(general: dict, mediciones: list,
 
 def _num_txt(n, nums):
     return nums.get(n, str(n))
+
+
+def _generar_grafica_bytes(mediciones):
+    """Genera la gráfica de barras de conformidad y retorna bytes PNG."""
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        import io as _io
+
+        total      = len(mediciones)
+        conformes  = sum(1 for m in mediciones if "✅" in str(m.get("resultado", "")))
+        deficientes = total - conformes
+        if total == 0:
+            return None
+
+        pct_conf = round(conformes / total * 100, 1)
+        pct_def  = round(deficientes / total * 100, 1)
+
+        fig, ax = plt.subplots(figsize=(7, 3), facecolor='#f8fafc')
+        ax.set_facecolor('#f8fafc')
+
+        bars = ax.barh([1, 0], [pct_conf, pct_def],
+                       color=['#27ae60', '#e74c3c'], height=0.5,
+                       edgecolor='white', linewidth=1.5)
+        for bar, val, n in zip(bars, [pct_conf, pct_def], [conformes, deficientes]):
+            ax.text(val/2, bar.get_y() + bar.get_height()/2,
+                    f"{val}%  ({n} pts)",
+                    ha='center', va='center',
+                    fontsize=11, fontweight='bold', color='white')
+
+        ax.set_yticks([1, 0])
+        ax.set_yticklabels(['Adecuados', 'Deficientes'],
+                           fontsize=11, fontweight='bold', color='#1a3a5c')
+        ax.set_xlim(0, 115)
+        ax.set_xlabel('Porcentaje (%)', fontsize=9, color='#475569')
+        ax.set_title(f'Conformidad Lumínica — {total} puntos evaluados',
+                     fontsize=11, fontweight='bold', color='#1a3a5c', pad=10)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['left'].set_visible(False)
+        ax.tick_params(axis='x', colors='#94a3b8')
+        ax.tick_params(axis='y', left=False)
+        ax.xaxis.grid(True, linestyle='--', alpha=0.4, color='#cbd5e1')
+        ax.set_axisbelow(True)
+        plt.tight_layout()
+
+        buf = _io.BytesIO()
+        plt.savefig(buf, format='PNG', bbox_inches='tight', dpi=140, facecolor='#f8fafc')
+        plt.close(fig)
+        buf.seek(0)
+        return buf.getvalue()
+    except Exception as e:
+        return None
 
 
 def _actualizar_tabla2_retilap(tabla, mediciones):
